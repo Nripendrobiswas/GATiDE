@@ -236,26 +236,30 @@ def main():
     print(f" Save dir   : {args.save_dir} | Save preds={args.save_predictions}")
     print("="*80 + "\n")
 
-    # Per-model kwargs from YAML if available
+    # Per-model kwargs from YAML if available – supports both flat (configs/default.yaml) and nested tuned (tuned_configs/tuned_best.yaml)
     model_kwargs = {}
     if args.__dict__.get("config") and os.path.exists(args.config):
         with open(args.config) as f:
             cfg = yaml.safe_load(f) or {}
-        if "models" in cfg:
-            # flatten per-model overrides except generic 'model'
-            for k, v in cfg["models"].items():
-                if isinstance(v, dict):
-                    model_kwargs[k] = v
-        if "model" in cfg and isinstance(cfg["model"], dict):
-            # generic overrides – apply to all? We'll merge into each
-            generic = cfg["model"]
-            for mk in ["gatide", "tide", "dlinear", "patchtst", "naive"]:
-                if mk not in model_kwargs:
-                    model_kwargs[mk] = {}
-                # only set if not already set per-model
-                for gk, gv in generic.items():
-                    if gk not in model_kwargs[mk]:
-                        model_kwargs[mk][gk] = gv
+        # Detect nested tuned config: top-level keys are dataset names (ETTh1 etc.)
+        tuned_datasets = {"ETTh1", "ETTh2", "ETTm1", "ETTm2", "electricity", "weather", "traffic", "Electricity", "Weather", "Traffic"}
+        if any(k in tuned_datasets for k in cfg.keys()):
+            # Nested structure {dataset: {horizon: {model: params}}} – pass as-is
+            model_kwargs = cfg
+            print(f"[config] Detected nested tuned config ({len(cfg)} datasets) – using per-dataset-horizon overrides")
+        else:
+            if "models" in cfg:
+                for k, v in cfg["models"].items():
+                    if isinstance(v, dict):
+                        model_kwargs[k] = v
+            if "model" in cfg and isinstance(cfg["model"], dict):
+                generic = cfg["model"]
+                for mk in ["gatide", "tide", "dlinear", "patchtst", "naive"]:
+                    if mk not in model_kwargs:
+                        model_kwargs[mk] = {}
+                    for gk, gv in generic.items():
+                        if gk not in model_kwargs[mk]:
+                            model_kwargs[mk][gk] = gv
 
     df = run_benchmark(
         csv_dir=args.csv_dir,

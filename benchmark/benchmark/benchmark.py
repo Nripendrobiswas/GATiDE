@@ -176,7 +176,7 @@ def run_benchmark(
                 if torch.cuda.is_available():
                     torch.cuda.manual_seed_all(cur_seed)
 
-                # Build model
+                # Build model – supports both flat per-model and nested per-dataset-horizon tuned configs
                 try:
                     ModelClass = get_model(model_name)
                     # Merge kwargs
@@ -185,10 +185,29 @@ def run_benchmark(
                         lookback=lookback,
                         horizon=horizon,
                     )
-                    # Apply per-model overrides
-                    if model_name in model_kwargs:
-                        kwargs.update(model_kwargs[model_name])
-                    # Also pass common hidden etc if provided at top level? keep simple
+                    # Nested tuned config: {dataset: {horizon: {model: params}}}
+                    cur_lr = lr
+                    cur_batch = batch_size
+                    if dataset in model_kwargs and str(horizon) in model_kwargs[dataset] and model_name in model_kwargs[dataset][str(horizon)]:
+                        tuned = model_kwargs[dataset][str(horizon)][model_name]
+                        # training overrides
+                        if "lr" in tuned:
+                            cur_lr = tuned["lr"]
+                        if "batch_size" in tuned:
+                            cur_batch = tuned["batch_size"]
+                        # model kwargs (filter training keys)
+                        model_tuned = {k: v for k, v in tuned.items() if k not in ("lr", "batch_size")}
+                        kwargs.update(model_tuned)
+                    elif model_name in model_kwargs:
+                        # flat per-model
+                        # check for lr/batch inside flat (rare)
+                        flat = model_kwargs[model_name]
+                        if isinstance(flat, dict) and "lr" in flat:
+                            cur_lr = flat["lr"]
+                        if isinstance(flat, dict) and "batch_size" in flat:
+                            cur_batch = flat["batch_size"]
+                        model_flat = {k: v for k, v in flat.items() if k not in ("lr", "batch_size")} if isinstance(flat, dict) else {}
+                        kwargs.update(model_flat)
                     model = ModelClass(**kwargs)
                     n_params = sum(p.numel() for p in model.parameters())
                     print(f"  model: {ModelClass.__name__} | params: {n_params:,} | kwargs: {kwargs}")
@@ -206,17 +225,20 @@ def run_benchmark(
                     })
                     continue
 
-                # Train & evaluate
+                # Train & evaluate – use cur_lr/cur_batch if tuned
+                cur_train_loader, cur_val_loader, cur_test_loader = train_loader, val_loader, test_loader
+                if cur_batch != batch_size:
+                    cur_train_loader, cur_val_loader, cur_test_loader = make_loaders(split, lookback, horizon, batch_size=cur_batch)
                 t_start = time.time()
                 try:
                     out = train_one_model(
                         model=model,
-                        train_loader=train_loader,
-                        val_loader=val_loader,
-                        test_loader=test_loader,
+                        train_loader=cur_train_loader,
+                        val_loader=cur_val_loader,
+                        test_loader=cur_test_loader,
                         scaler=split.scaler,
                         n_epochs=n_epochs,
-                        lr=lr,
+                        lr=cur_lr,
                         weight_decay=weight_decay,
                         optimizer_name=optimizer,
                         scheduler_name=scheduler,
@@ -272,8 +294,8 @@ def run_benchmark(
                         "inference_ms_per_batch": out["inference_ms_per_batch"],
                         "epochs_run": out["epochs_run"],
                         "n_params": out["n_params"],
-                        "batch_size": batch_size,
-                        "lr": lr,
+                        "batch_size": cur_batch,
+                        "lr": cur_lr,
                         "split_convention": split_convention,
                         "status": status,
                     }
