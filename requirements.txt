@@ -1,0 +1,18 @@
+# Pinned to the environment in which the reported results were produced.
+# GA-TiDE subclasses Darts' private `_TideModule` and depends on the internal
+# channel layout of its input tensor, so the darts pin is a hard requirement,
+# not a convenience. See tests/test_segment_layout.py, which fails loudly if a
+# future release changes that layout.
+
+darts==0.46.1
+torch==2.10.0
+pytorch-lightning==2.6.5
+numpy==2.0.2
+
+pandas>=2.0
+scikit-learn>=1.3
+matplotlib>=3.8
+optuna>=3.6
+
+# Development / verification
+pytest>=8.0

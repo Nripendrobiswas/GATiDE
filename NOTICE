@@ -1,0 +1,28 @@
+GA-TiDE
+Copyright (c) 2026 Nripendro Biswas
+
+This product includes software developed as part of the Darts library
+(https://github.com/unit8co/darts), Copyright (c) Unit8 SA, licensed under
+the Apache License, Version 2.0.
+
+The following files contain code derived from Darts, specifically from
+`darts/models/forecasting/tide_model.py`:
+
+  src/ga_tide/model.py
+      - `_GATideModule` subclasses `darts.models.forecasting.tide_model
+        ._TideModule`. Its `__init__` rebuilds the encoder, decoder, temporal
+        decoder and covariate projections, and its `forward` is adapted from
+        `_TideModule.forward` with the following modifications:
+          * the flattened input segments are passed through the
+            `SegmentAttentionFusion` module instead of being concatenated
+            directly;
+          * a runtime assertion on the segment widths has been added.
+      - `GatedResidualBlock` is a modified reimplementation of
+        `_ResidualBlock`, adding a sigmoid gate on the nonlinear branch and
+        suppressing Layer Normalization for unit-width outputs.
+      - `GATiDEModel` subclasses `darts.models.TiDEModel`; its `__init__` and
+        `_create_model` are adapted from the corresponding methods.
+
+All modifications are Copyright (c) 2026 Nripendro Biswas and are released
+under the same Apache License, Version 2.0. A copy of the license is in
+LICENSE.

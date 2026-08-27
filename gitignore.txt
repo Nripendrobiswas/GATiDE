@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# GA-TiDE repository .gitignore
+# ---------------------------------------------------------------------------
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Darts / Lightning training artefacts -- large, regenerable, never in git
+darts_logs/
+lightning_logs/
+checkpoints/
+*.ckpt
+*.pth
+*.pt
+.darts/
+
+# Optuna
+*.db
+*.db-journal
+optuna_studies/
+
+# Datasets -- fetched by scripts/download_data.py, never committed
+data/
+!data/README.md
+*.csv.gz
+*.zip
+
+# EXCEPTION: the small result tables that generate the paper's tables ARE
+# committed. They are the evidence for the reported numbers.
+!results/*.csv
+
+# LaTeX build products
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
