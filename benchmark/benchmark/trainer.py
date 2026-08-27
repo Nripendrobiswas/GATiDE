@@ -1,13 +1,21 @@
 """
 Training & Evaluation Engine
 ============================
-- MSE loss, AdamW, schedulers (CosineAnnealing, StepLR)
-- EarlyStopping on val_loss
-- Throughput tracking: training time per epoch (seconds), GPU peak memory (MB)
+- MSE loss, AdamW/Adam, schedulers (CosineAnnealing, StepLR) – TiDE paper uses Adam with MSE,
+  requirement asks AdamW; both supported via optimizer_name (TiDE §5.1: "we optimize using the
+  default settings of the Adam optimizer")
+- EarlyStopping on val_loss (normalized scale, as training loss)
+- Throughput tracking: training time per epoch (s), GPU peak memory (MB) via
+  torch.cuda.max_memory_allocated (TiDE Fig.2 reports training time per epoch and inference
+  time per batch vs L on Electricity, batch 8, T4 GPU – we report both)
+- Metrics on BOTH scales:
+    * normalized (standardized) MSE/MAE – TiDE Table 2: "All metrics are reported on standard
+      normalized datasets (using mean and std in training period)"
+    * inverse-scaled (original) MSE/MAE – requirement prompt: "Compute metrics on inverse-scaled
+      predictions"
+  Both are returned; normalized is primary for paper comparability, inverse is for requirement.
 - Clean PyTorch loop (no Lightning required, but compatible)
 - Mixed precision optional
-
-All metrics on inverse-scaled predictions (original scale) via scaler.
 """
 from __future__ import annotations
 
@@ -83,11 +91,12 @@ def train_one_model(
     verbose: bool = True,
 ) -> Dict:
     """
-    Train with MSE loss, AdamW, early stopping.
+    Train with MSE loss, AdamW/Adam, early stopping.
 
     Returns dict with:
       model (best state), history, train_time_per_epoch, peak_memory_mb,
-      test_mse, test_mae, val_mse, val_mae, epochs_run, best_val_loss
+      inference_time_ms_per_batch, test_mse (original), test_mae (original),
+      test_mse_norm/test_mae_norm (normalized, TiDE Table 2), val equivalents, epochs_run
     """
     scheduler_params = scheduler_params or {}
 
@@ -132,20 +141,27 @@ def train_one_model(
 
     # Early exit for naive
     if is_naive:
-        # Direct evaluation without training
-        val_mse, val_mae, _, _ = evaluate(model, val_loader, scaler, device)
-        test_mse, test_mae, preds, trues = evaluate(model, test_loader, scaler, device, return_arrays=True)
+        # Direct evaluation without training – report both scales
+        val_mse, val_mae, val_mse_n, val_mae_n, _, _ = evaluate(model, val_loader, scaler, device)
+        test_mse, test_mae, test_mse_n, test_mae_n, preds, trues = evaluate(model, test_loader, scaler, device, return_arrays=True)
+        # Inference timing for naive (per batch)
+        infer_ms = measure_inference_time(model, test_loader, device)
         return {
             "best_state": None,
             "history": [],
             "train_time_per_epoch": 0.0,
             "peak_memory_mb": 0.0,
+            "inference_ms_per_batch": infer_ms,
             "epochs_run": 0,
-            "best_val_loss": val_mse,
+            "best_val_loss": val_mse_n if not np.isnan(val_mse_n) else val_mse,
             "val_mse": val_mse,
             "val_mae": val_mae,
+            "val_mse_norm": val_mse_n,
+            "val_mae_norm": val_mae_n,
             "test_mse": test_mse,
             "test_mae": test_mae,
+            "test_mse_norm": test_mse_n,
+            "test_mae_norm": test_mae_n,
             "preds": preds,
             "trues": trues,
             "n_params": 0,
@@ -241,9 +257,10 @@ def train_one_model(
     else:
         peak_mem_mb = 0.0
 
-    # Final evaluation on inverse-scaled predictions
-    val_mse, val_mae, _, _ = evaluate(model, val_loader, scaler, device)
-    test_mse, test_mae, preds, trues = evaluate(model, test_loader, scaler, device, return_arrays=True)
+    # Final evaluation – both normalized (TiDE Table 2) and inverse-scaled (requirement)
+    val_mse, val_mae, val_mse_n, val_mae_n, _, _ = evaluate(model, val_loader, scaler, device)
+    test_mse, test_mae, test_mse_n, test_mae_n, preds, trues = evaluate(model, test_loader, scaler, device, return_arrays=True)
+    infer_ms = measure_inference_time(model, test_loader, device)
 
     per_epoch = train_seconds_total / max(epochs_run, 1)
 
@@ -252,16 +269,53 @@ def train_one_model(
         "history": history,
         "train_time_per_epoch": per_epoch,
         "peak_memory_mb": float(peak_mem_mb),
+        "inference_ms_per_batch": infer_ms,
         "epochs_run": epochs_run,
         "best_val_loss": best_val_loss,
         "val_mse": val_mse,
         "val_mae": val_mae,
+        "val_mse_norm": val_mse_n,
+        "val_mae_norm": val_mae_n,
         "test_mse": test_mse,
         "test_mae": test_mae,
-        "preds": preds,  # (N, H, C) in original scale, may be None if large
+        "test_mse_norm": test_mse_n,
+        "test_mae_norm": test_mae_n,
+        "preds": preds,  # (N, H, C) in original scale
         "trues": trues,
         "n_params": n_params,
     }
+
+
+@torch.no_grad()
+def measure_inference_time(model: nn.Module, loader: DataLoader, device: torch.device | str = "cpu", warmup: int = 3) -> float:
+    """Measure average inference time per batch in ms (TiDE Fig.2: inference time for one batch).
+    Runs warmup + 10 timed batches on device, synchronized if CUDA.
+    """
+    if isinstance(device, str):
+        device = torch.device(device)
+    model.eval()
+    # Warmup
+    for i, (xb, _) in enumerate(loader):
+        if i >= warmup:
+            break
+        xb = xb.to(device)
+        _ = model(xb)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+    # Timed
+    times = []
+    for i, (xb, _) in enumerate(loader):
+        if i >= 10:
+            break
+        xb = xb.to(device)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        t0 = time.time()
+        _ = model(xb)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        times.append((time.time() - t0) * 1000.0)
+    return float(np.mean(times)) if times else 0.0
 
 
 @torch.no_grad()
@@ -271,41 +325,48 @@ def evaluate(
     scaler,
     device: torch.device | str = "cpu",
     return_arrays: bool = False,
-) -> Tuple[float, float, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Evaluate on loader, inverse-scale, compute MSE/MAE in original scale.
+) -> Tuple[float, float, float, float, Optional[np.ndarray], Optional[np.ndarray]]:
+    """Evaluate on loader, compute BOTH normalized (TiDE Table 2) and inverse-scaled metrics.
 
-    Returns (mse, mae, preds_array, trues_array) where arrays are (N, H, C) if requested.
+    Returns (mse_orig, mae_orig, mse_norm, mae_norm, preds_array, trues_array)
+    where mse_norm/mae_norm are on standardized scale (training-period mean/std),
+    directly comparable to TiDE paper Table 2. mse_orig/mae_orig are on original scale
+    as per requirement prompt. Arrays are (N, H, C) in original scale if requested.
     """
     if isinstance(device, str):
         device = torch.device(device)
     model.eval()
-    preds_list = []
-    trues_list = []
+    preds_inv_list = []
+    trues_inv_list = []
+    preds_norm_list = []
+    trues_norm_list = []
     for xb, yb in loader:
         xb = xb.to(device)
-        pred_scaled = model(xb)  # (B, H, C) scaled
-        # Move to cpu numpy
+        pred_scaled = model(xb)  # (B, H, C) scaled (normalized)
         pred_np = pred_scaled.detach().cpu().numpy()
-        true_np = yb.numpy()  # already cpu
-        # Inverse transform per (N, H, C)
-        # scaler expects (H, C) or (N*H, C) -> we do batch-wise
+        true_np = yb.numpy()  # already cpu, normalized
+        preds_norm_list.append(pred_np)
+        trues_norm_list.append(true_np)
+        # Inverse for original-scale metrics (requirement)
         B, H, C = pred_np.shape
-        # Reshape to (-1, C), inverse, reshape back
         pred_flat = pred_np.reshape(-1, C)
         true_flat = true_np.reshape(-1, C)
-        # scaler.inverse_transform expects 2-D
         pred_inv = scaler.inverse_transform(pred_flat).reshape(B, H, C)
         true_inv = scaler.inverse_transform(true_flat).reshape(B, H, C)
-        preds_list.append(pred_inv)
-        trues_list.append(true_inv)
+        preds_inv_list.append(pred_inv)
+        trues_inv_list.append(true_inv)
 
-    if not preds_list:
-        return float("nan"), float("nan"), None, None
+    if not preds_inv_list:
+        return float("nan"), float("nan"), float("nan"), float("nan"), None, None
 
-    preds = np.concatenate(preds_list, axis=0)  # (N, H, C)
-    trues = np.concatenate(trues_list, axis=0)
-    m = mse(trues, preds)
-    a = mae(trues, preds)
+    preds_inv = np.concatenate(preds_inv_list, axis=0)  # (N, H, C) original
+    trues_inv = np.concatenate(trues_inv_list, axis=0)
+    preds_norm = np.concatenate(preds_norm_list, axis=0)
+    trues_norm = np.concatenate(trues_norm_list, axis=0)
+    m_orig = mse(trues_inv, preds_inv)
+    a_orig = mae(trues_inv, preds_inv)
+    m_norm = mse(trues_norm, preds_norm)
+    a_norm = mae(trues_norm, preds_norm)
     if return_arrays:
-        return m, a, preds, trues
-    return m, a, None, None
+        return m_orig, a_orig, m_norm, a_norm, preds_inv, trues_inv
+    return m_orig, a_orig, m_norm, a_norm, None, None

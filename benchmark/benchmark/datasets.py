@@ -3,10 +3,22 @@ Data ingestion & preprocessing
 ============================
 - Loads time-series CSVs from data/ (ETTh1, ETTh2, ETTm1, ETTm2, weather, electricity, traffic).
 - Auto-discovers value columns (all except 'date' / 'Date' / 'date_col').
-- Sequential split 70/10/20.
-- Standardize with train-only statistics (StandardScaler).
-- Creates sliding-window Dataset with fixed lookback L=720 and horizon H.
-  Returns PyTorch DataLoaders.
+- Sequential split with TiDE-paper faithful options (Das et al. 2023, TMLR, §5.1):
+    * --split-convention tide (default, paper): 7:1:2 for all 7 datasets (70%/10%/20%)
+      -> matches TiDE Table 2 protocol: "train:validation:test ratio is 7:1:2 as dictated by prior work"
+    * --split-convention prior-work: 6:2:2 for ETT family (12/4/4 months) and 7:1:2 elsewhere
+      -> matches Informer/Autoformer/DLinear convention used in prior GATiDE scripts/benchmark.py
+  Requirement prompt specifies 70/10/20, which equals tide (7:1:2). Both are supported.
+- Standardize with train-only statistics (StandardScaler) to prevent leakage.
+  TiDE paper: "all the experiments are performed on standard normalized datasets (using the mean and
+  the standard deviations in the training period)" – i.e. metrics in Table 2 are on normalized scale.
+  Requirement asks for inverse-scaled metrics – benchmark now reports BOTH (see trainer.py).
+- Creates sliding-window Dataset with fixed lookback L=720 (TiDE always 720, §5.1) and horizon H.
+- Optional time-derived covariates (hour, dayofweek, month, etc.) as in TiDE §5.1:
+  "As global dynamic covariates, we use simple time-derived features like minute of the hour, hour of
+  the day, day of the week etc which are normalized similar to Alexandrov et al. 2020". When enabled,
+  GATiDE's SegmentAttentionFusion receives ≥2 segments and attention is active; without covariates it
+  falls back to single-segment (still valid, but attention arm is identical to concat).
 
 Supports both generic CSVs (date,col1,col2,...) and the LTSF benchmark layout.
 """
@@ -88,6 +100,56 @@ class TimeSeriesWindowDataset(Dataset):
         return torch.from_numpy(x), torch.from_numpy(y)
 
 
+# TiDE-paper dataset registry for split convention handling
+# ETT family uses fixed month counts in prior-work convention (6:2:2), otherwise 7:1:2
+ETT_FAMILY = {"ETTh1", "ETTh2", "ETTm1", "ETTm2"}
+
+def _split_indices(n: int, dataset: str, convention: str) -> tuple[int, int, int]:
+    """Return (n_train, n_val, n_test) per convention.
+    tide: 7:1:2 for all datasets (TiDE paper §5.1)
+    prior-work: 6:2:2 for ETT (12/4/4 months at hourly / 15-min), 7:1:2 elsewhere
+    """
+    if convention == "tide":
+        n_train = int(0.7 * n)
+        n_val = int(0.1 * n)
+        n_test = n - n_train - n_val
+        return n_train, n_val, n_test
+    # prior-work
+    if dataset in ETT_FAMILY:
+        # Fixed counts from GATiDE scripts/benchmark.py DATASETS spec
+        # ETTh*: 8640/2880/2880 at hourly, ETTm*: 34560/11520/11520 at 15-min
+        if dataset.startswith("ETTh"):
+            return 8640, 2880, 2880
+        else:  # ETTm
+            return 34560, 11520, 11520
+    n_train = int(0.7 * n)
+    n_val = int(0.1 * n)
+    n_test = n - n_train - n_val
+    return n_train, n_val, n_test
+
+
+def _make_time_covariates(dates: pd.Series, freq_is_subhourly: bool = False) -> Optional[np.ndarray]:
+    """Generate TiDE-style global dynamic time covariates (hour, dayofweek, month, dayofyear, + minute if subhourly).
+    Returns (T, F) standardized features or None if dates missing. Mirrors GATiDE scripts/benchmark.py build_encoders.
+    """
+    if dates is None or dates.isna().all():
+        return None
+    df = pd.DataFrame({"date": pd.to_datetime(dates)})
+    feats = []
+    # cyclic encodings not strictly needed for simple linear – use raw normalized ints for transparency
+    # TiDE uses cyclic + datetime_attribute + position; here we generate straightforward normalized time features
+    feats.append(df["date"].dt.hour.values[:, None] / 23.0)
+    feats.append(df["date"].dt.dayofweek.values[:, None] / 6.0)
+    feats.append(df["date"].dt.month.values[:, None] / 12.0)
+    feats.append(df["date"].dt.dayofyear.values[:, None] / 366.0)
+    if freq_is_subhourly:
+        feats.append(df["date"].dt.minute.values[:, None] / 59.0)
+    cov = np.concatenate(feats, axis=1).astype(np.float32)
+    # Fill NaT rows with 0
+    cov = np.nan_to_num(cov, nan=0.0)
+    return cov
+
+
 @dataclass
 class SplitData:
     dataset: str
@@ -105,6 +167,11 @@ class SplitData:
     train_raw: np.ndarray
     val_raw: np.ndarray
     test_raw: np.ndarray
+    # TiDE covariates (optional, not used by default pure loop but available for GATiDE attention)
+    dates: Optional[pd.Series] = None
+    cov_train: Optional[np.ndarray] = None  # (T_train, F)
+    cov_val: Optional[np.ndarray] = None
+    cov_test: Optional[np.ndarray] = None
 
 
 def load_and_split(
@@ -113,9 +180,14 @@ def load_and_split(
     lookback: int = 720,
     horizon: int = 96,
     split_ratios: Tuple[float, float, float] = (0.70, 0.10, 0.20),
+    split_convention: str = "tide",
+    use_covariates: bool = False,
 ) -> SplitData:
     """Load CSV, split sequentially, fit scaler on train only.
 
+    Args:
+        split_convention: "tide" (7:1:2 for all, TiDE paper §5.1) or "prior-work" (6:2:2 for ETT)
+        use_covariates: if True, also generate time-derived covariates for GATiDE segment fusion
     Returns SplitData with both scaled and raw arrays.
     """
     csv_path = _resolve_csv(csv_dir, dataset)
@@ -156,9 +228,19 @@ def load_and_split(
     feature_names = value_cols
     T_total = len(values)
 
-    n_train = int(T_total * split_ratios[0])
-    n_val = int(T_total * split_ratios[1])
-    n_test = T_total - n_train - n_val
+    # Split per convention – TiDE paper uses 7:1:2 for all datasets
+    if split_convention in ("tide", "prior-work"):
+        n_train, n_val, n_test = _split_indices(T_total, dataset, split_convention)
+        # Validate fixed counts for ETT prior-work
+        if n_train + n_val + n_test > T_total:
+            # Fallback to ratio if file shorter than expected (e.g., truncated traffic)
+            n_train = int(T_total * split_ratios[0])
+            n_val = int(T_total * split_ratios[1])
+            n_test = T_total - n_train - n_val
+    else:
+        n_train = int(T_total * split_ratios[0])
+        n_val = int(T_total * split_ratios[1])
+        n_test = T_total - n_train - n_val
 
     # Ensure at least lookback + horizon available in each split for windowing
     # (Splits are sequential, not windowed yet; windowing is done per split)
@@ -171,6 +253,23 @@ def load_and_split(
     train_scaled = scaler.transform(train_raw)
     val_scaled = scaler.transform(val_raw)
     test_scaled = scaler.transform(test_raw)
+
+    # Time covariates (optional) – generate from date column if requested
+    dates = df[date_col] if date_col is not None else None
+    cov_train = cov_val = cov_test = None
+    if use_covariates and dates is not None:
+        freq_is_subhourly = dataset.startswith("ETTm") or dataset.lower() == "weather"
+        cov_all = _make_time_covariates(dates, freq_is_subhourly=freq_is_subhourly)
+        if cov_all is not None:
+            cov_train = cov_all[:n_train]
+            cov_val = cov_all[n_train: n_train + n_val]
+            cov_test = cov_all[n_train + n_val:]
+            # Standardize covariates with train stats as well
+            cov_scaler = StandardScaler()
+            cov_scaler.fit(cov_train)
+            cov_train = cov_scaler.transform(cov_train)
+            cov_val = cov_scaler.transform(cov_val)
+            cov_test = cov_scaler.transform(cov_test)
 
     return SplitData(
         dataset=dataset,
@@ -188,6 +287,10 @@ def load_and_split(
         train_raw=train_raw,
         val_raw=val_raw,
         test_raw=test_raw,
+        dates=dates,
+        cov_train=cov_train,
+        cov_val=cov_val,
+        cov_test=cov_test,
     )
 
 

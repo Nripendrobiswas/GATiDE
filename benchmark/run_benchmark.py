@@ -70,6 +70,9 @@ def parse_args():
     p.add_argument("--device", type=str, default=None, help="auto | cpu | cuda")
     p.add_argument("--amp", action="store_true", help="Enable mixed precision")
     p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--seeds", type=int, nargs="+", default=None, help="Multiple seeds for TiDE 5-run mean±std, e.g., --seeds 0 1 2 3 4")
+    p.add_argument("--split-convention", type=str, default=None, choices=["tide", "prior-work"], help="tide=7:1:2 all datasets (TiDE paper §5.1), prior-work=6:2:2 for ETT")
+    p.add_argument("--use-covariates", action="store_true", help="Generate time covariates (TiDE §5.1) for GATiDE segment attention")
 
     # Saving
     p.add_argument("--save-dir", type=str, default=None, help="Output directory")
@@ -165,6 +168,9 @@ def parse_args():
     grad_clip = get("training.grad_clip", args.grad_clip, default=1.0)
     device = get("training.device", args.device, default="auto")
     seed = get("training.seed", args.seed, default=42)
+    seeds = args.seeds if args.seeds is not None else get("training.seeds", None, default=None)
+    split_convention = get("data.split_convention", args.split_convention, default="tide")
+    use_covariates = args.use_covariates or get("data.use_covariates", None, default=False)
     amp = args.amp or get("training.amp", None, default=False)
     save_dir = get("benchmark.save_dir", args.save_dir, default="./benchmark_outputs")
     # save_predictions tri-state
@@ -208,6 +214,9 @@ def parse_args():
         device=device,
         amp=amp,
         seed=seed,
+        seeds=seeds,
+        split_convention=split_convention,
+        use_covariates=use_covariates,
         save_dir=save_dir,
         save_predictions=save_predictions,
         verbose=args.verbose,
@@ -217,13 +226,13 @@ def parse_args():
 def main():
     args = parse_args()
     print("\n" + "="*80)
-    print(" GATiDE Benchmark – Unified PyTorch Loop")
+    print(" GATiDE Benchmark – Unified PyTorch Loop (TiDE-paper faithful)")
     print("="*80)
-    print(f" Datasets   : {args.datasets if args.datasets else 'auto-discover'}")
-    print(f" Horizons   : {args.horizons}  | Lookback L={args.lookback}")
+    print(f" Datasets   : {args.datasets if args.datasets else 'auto-discover'} | split={args.split_convention} covariates={args.use_covariates}")
+    print(f" Horizons   : {args.horizons}  | Lookback L={args.lookback} (TiDE always 720)")
     print(f" Models     : {args.models}")
     print(f" Training   : epochs={args.n_epochs} batch={args.batch_size} lr={args.lr} opt={args.optimizer} sched={args.scheduler}")
-    print(f" Device     : {args.device} | AMP={args.amp} | Seed={args.seed}")
+    print(f" Device     : {args.device} | AMP={args.amp} | Seed(s)={args.seeds if args.seeds else args.seed}")
     print(f" Save dir   : {args.save_dir} | Save preds={args.save_predictions}")
     print("="*80 + "\n")
 
@@ -267,6 +276,9 @@ def main():
         device=args.device,
         amp=args.amp,
         seed=args.seed,
+        seeds=args.seeds,
+        split_convention=args.split_convention,
+        use_covariates=args.use_covariates,
         save_dir=args.save_dir,
         save_predictions=args.save_predictions,
         model_kwargs=model_kwargs,

@@ -6,12 +6,25 @@ saves predictions, and writes benchmark_results.csv.
 
 This is imported by run_benchmark.py CLI.
 
-Protocol matches requirements:
-  - Lookback L=720, horizons H in {96,192,336,720}
-  - Sequential split 70/10/20, standardized with train-only params
-  - MSE loss, AdamW, Cosine/StepLR, EarlyStopping
-  - Metrics on inverse-scaled test set: MSE, MAE
-  - Throughput: training time per epoch (s), GPU peak memory (MB)
+Protocol – TiDE-paper faithful (Das et al. 2023, TMLR §5.1) + requirement prompt:
+  - Lookback L=720 (TiDE always 720, baselines tuned 24..720), horizons H in {96,192,336,720}
+  - Sequential split 7:1:2 (70%/10%/20%) for all 7 datasets (Electricity 321, Traffic 862,
+    Weather 21, ETTh1/ETTh2 7, ETTm1/ETTm2 7) – TiDE Table 1/2: "train:validation:test ratio is
+    7:1:2 as dictated by prior work". Requirement prompt also 70/10/20 (identical). Alternative
+    "prior-work" (6:2:2 for ETT) supported via --split-convention.
+  - Standardize with train-only mean/std (TiDE: "using the mean and the standard deviations in
+    the training period") – metrics in Table 2 are on normalized scale; requirement asks inverse-
+    scaled. This harness reports BOTH (mse/mse_norm).
+  - MSE loss, Adam (TiDE default) / AdamW (requirement), CosineAnnealing/StepLR, EarlyStopping
+  - Rolling evaluation: sliding windows stride 1 from test period (TiDE §3: "evaluated on every
+    (look-back, horizon) pair that can be constructed from the test set"), averaged over origins
+    and channels. 5 independent seeds averaged for TiDE Table 2 (we run per-seed rows; aggregation
+    prints mean±std).
+  - Covariates: TiDE uses time-derived global dynamic covariates (hour, dayofweek, month,
+    dayofyear + minute if subhourly), normalized train-only (§5.1). Enabled via
+    --use-covariates, in which case GATiDE's SegmentAttentionFusion has ≥2 segments.
+  - Throughput: training time per epoch (s), inference time per batch (ms), GPU peak memory (MB)
+    – TiDE Fig.2 reports training/inference time vs L on Electricity batch 8 T4 GPU.
 """
 from __future__ import annotations
 
@@ -47,6 +60,9 @@ def run_benchmark(
     device: str = "auto",
     amp: bool = False,
     seed: int = 42,
+    seeds: Optional[List[int]] = None,  # if set, run 5 seeds and aggregate (TiDE reports mean±std over 5 runs)
+    split_convention: str = "tide",
+    use_covariates: bool = False,
     save_dir: str = "./benchmark_outputs",
     save_predictions: bool = True,
     model_kwargs: Optional[Dict[str, dict]] = None,
@@ -75,44 +91,44 @@ def run_benchmark(
         print(f"[benchmark] Auto-discovered datasets: {datasets}")
 
     os.makedirs(save_dir, exist_ok=True)
-    # Fix seed
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    # Seed handling – TiDE reports mean±std over 5 runs; requirement single seed. Support both.
+    seeds_list = seeds if seeds is not None else [seed]
+    # Fix initial seed for data loading determinism; per-run seeds set inside loop
+    torch.manual_seed(seeds_list[0])
+    np.random.seed(seeds_list[0])
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+        torch.cuda.manual_seed_all(seeds_list[0])
 
     results: List[Dict] = []
-    total_runs = len(datasets) * len(horizons) * len(models)
-    print(f"[benchmark] Planned runs: {total_runs} = {len(datasets)} datasets x {len(horizons)} horizons x {len(models)} models")
-    print(f"[benchmark] Lookback L={lookback} | Device={device} | Epochs={n_epochs} | Batch={batch_size}")
+    total_runs = len(datasets) * len(horizons) * len(models) * len(seeds_list)
+    print(f"[benchmark] Planned runs: {total_runs} = {len(datasets)} datasets x {len(horizons)} horizons x {len(models)} models x {len(seeds_list)} seed(s)")
+    print(f"[benchmark] Lookback L={lookback} | Horizons {horizons} | Device={device} | Epochs={n_epochs} | Batch={batch_size} | split={split_convention} | covariates={use_covariates}")
+    print(f"[benchmark] Metrics: mse/mae (original, requirement) + mse_norm/mae_norm (normalized, TiDE Table 2 comparable)")
     print("-" * 80)
 
     run_idx = 0
     for dataset in datasets:
         for horizon in horizons:
             # Load split once per dataset-horizon (horizon only affects windowing)
+            # TiDE §5.1: 7:1:2 for all datasets; prior-work alternative supported
             try:
-                split = load_and_split(csv_dir, dataset, lookback=lookback, horizon=horizon)
+                split = load_and_split(csv_dir, dataset, lookback=lookback, horizon=horizon,
+                                       split_convention=split_convention, use_covariates=use_covariates)
             except Exception as e:
                 print(f"[skip] {dataset} H={horizon} – load failed: {e}")
-                # Record failed row
                 for model_name in models:
+                  for cur_seed in seeds_list:
                     results.append({
                         "dataset": dataset,
                         "horizon": horizon,
                         "model": model_name,
+                        "seed": cur_seed,
                         "lookback": lookback,
-                        "mse": np.nan,
-                        "mae": np.nan,
-                        "val_mse": np.nan,
-                        "val_mae": np.nan,
-                        "train_time_per_epoch_s": np.nan,
-                        "peak_memory_mb": np.nan,
-                        "epochs_run": 0,
-                        "n_params": 0,
-                        "batch_size": batch_size,
-                        "lr": lr,
-                        "status": f"load_failed: {e}",
+                        "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
+                        "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
+                        "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
+                        "epochs_run": 0, "n_params": 0, "batch_size": batch_size, "lr": lr,
+                        "split_convention": split_convention, "status": f"load_failed: {e}",
                     })
                 continue
 
@@ -129,32 +145,36 @@ def run_benchmark(
             except ValueError as e:
                 print(f"[skip] {dataset} H={horizon} – window failed: {e}")
                 for model_name in models:
+                  for cur_seed in seeds_list:
                     results.append({
                         "dataset": dataset,
                         "horizon": horizon,
                         "model": model_name,
+                        "seed": cur_seed,
                         "lookback": lookback,
-                        "mse": np.nan,
-                        "mae": np.nan,
-                        "val_mse": np.nan,
-                        "val_mae": np.nan,
-                        "train_time_per_epoch_s": np.nan,
-                        "peak_memory_mb": np.nan,
-                        "epochs_run": 0,
-                        "n_params": 0,
-                        "batch_size": batch_size,
-                        "lr": lr,
-                        "status": f"window_failed: {e}",
+                        "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
+                        "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
+                        "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
+                        "epochs_run": 0, "n_params": 0, "batch_size": batch_size, "lr": lr,
+                        "split_convention": split_convention, "status": f"window_failed: {e}",
                     })
                 continue
 
             if verbose:
                 print(f"  windows: train {len(train_loader.dataset)} | val {len(val_loader.dataset)} | test {len(test_loader.dataset)}")
+                if use_covariates and split.cov_train is not None:
+                    print(f"  covariates: train {split.cov_train.shape} (time-derived, TiDE §5.1) – GATiDE fusion active")
 
             for model_name in models:
+              for cur_seed in seeds_list:
                 run_idx += 1
-                tag = f"[{run_idx}/{total_runs}] {dataset} H={horizon} model={model_name}"
+                tag = f"[{run_idx}/{total_runs}] {dataset} H={horizon} model={model_name} seed={cur_seed}"
                 print(f"\n{tag}", flush=True)
+                # Set per-run seed (TiDE reports mean over 5 seeds)
+                torch.manual_seed(cur_seed)
+                np.random.seed(cur_seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(cur_seed)
 
                 # Build model
                 try:
@@ -176,11 +196,13 @@ def run_benchmark(
                     print(f"  FAILED model build: {e}")
                     results.append({
                         "dataset": dataset, "horizon": horizon, "model": model_name,
+                        "seed": cur_seed,
                         "lookback": lookback,
-                        "mse": np.nan, "mae": np.nan, "val_mse": np.nan, "val_mae": np.nan,
-                        "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan,
+                        "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
+                        "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
+                        "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
                         "epochs_run": 0, "n_params": 0, "batch_size": batch_size, "lr": lr,
-                        "status": f"build_failed: {e}",
+                        "split_convention": split_convention, "status": f"build_failed: {e}",
                     })
                     continue
 
@@ -217,13 +239,13 @@ def run_benchmark(
                 elapsed = time.time() - t_start
 
                 if out is not None:
-                    # Save predictions
+                    # Save predictions – include seed in filename when multi-seed
                     if save_predictions and out.get("preds") is not None:
                         pred_dir = os.path.join(save_dir, "predictions")
                         os.makedirs(pred_dir, exist_ok=True)
-                        # Filenames: {dataset}_H{H}_{model}_pred.npy / _true.npy
-                        pred_path = os.path.join(pred_dir, f"{dataset}_H{horizon}_{model_name}_pred.npy")
-                        true_path = os.path.join(pred_dir, f"{dataset}_H{horizon}_{model_name}_true.npy")
+                        suffix = f"_seed{cur_seed}" if len(seeds_list) > 1 else ""
+                        pred_path = os.path.join(pred_dir, f"{dataset}_H{horizon}_{model_name}{suffix}_pred.npy")
+                        true_path = os.path.join(pred_dir, f"{dataset}_H{horizon}_{model_name}{suffix}_true.npy")
                         try:
                             np.save(pred_path, out["preds"])
                             np.save(true_path, out["trues"])
@@ -235,30 +257,39 @@ def run_benchmark(
                         "dataset": dataset,
                         "horizon": horizon,
                         "model": model_name,
+                        "seed": cur_seed,
                         "lookback": lookback,
                         "mse": out["test_mse"],
                         "mae": out["test_mae"],
+                        "mse_norm": out["test_mse_norm"],
+                        "mae_norm": out["test_mae_norm"],
                         "val_mse": out["val_mse"],
                         "val_mae": out["val_mae"],
+                        "val_mse_norm": out["val_mse_norm"],
+                        "val_mae_norm": out["val_mae_norm"],
                         "train_time_per_epoch_s": out["train_time_per_epoch"],
                         "peak_memory_mb": out["peak_memory_mb"],
+                        "inference_ms_per_batch": out["inference_ms_per_batch"],
                         "epochs_run": out["epochs_run"],
                         "n_params": out["n_params"],
                         "batch_size": batch_size,
                         "lr": lr,
+                        "split_convention": split_convention,
                         "status": status,
                     }
-                    print(f"  -> MSE {out['test_mse']:.4f} | MAE {out['test_mae']:.4f} | "
-                          f"val MSE {out['val_mse']:.4f} | {out['train_time_per_epoch']:.2f}s/epoch | "
+                    print(f"  -> MSE {out['test_mse']:.4f} (norm {out['test_mse_norm']:.4f}) | MAE {out['test_mae']:.4f} (norm {out['test_mae_norm']:.4f}) | "
+                          f"val MSE {out['val_mse']:.4f} | {out['train_time_per_epoch']:.2f}s/epoch | infer {out['inference_ms_per_batch']:.1f}ms/batch | "
                           f"peak {out['peak_memory_mb']:.1f} MB | epochs {out['epochs_run']}/{n_epochs}")
                 else:
                     row = {
                         "dataset": dataset, "horizon": horizon, "model": model_name,
+                        "seed": cur_seed,
                         "lookback": lookback,
-                        "mse": np.nan, "mae": np.nan, "val_mse": np.nan, "val_mae": np.nan,
-                        "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan,
+                        "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
+                        "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
+                        "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
                         "epochs_run": 0, "n_params": n_params if 'n_params' in locals() else 0,
-                        "batch_size": batch_size, "lr": lr, "status": status,
+                        "batch_size": batch_size, "lr": lr, "split_convention": split_convention, "status": status,
                     }
 
                 results.append(row)
@@ -274,29 +305,39 @@ def run_benchmark(
 
     # Final DataFrame
     df = pd.DataFrame(results)
-    # Sort
-    df = df.sort_values(["dataset", "horizon", "model"]).reset_index(drop=True)
+    # Sort – include seed if multi-seed
+    sort_cols = ["dataset", "horizon", "model", "seed"] if "seed" in df.columns else ["dataset", "horizon", "model"]
+    df = df.sort_values(sort_cols).reset_index(drop=True)
     out_csv = os.path.join(save_dir, "benchmark_results.csv")
     df.to_csv(out_csv, index=False)
     print("\n" + "=" * 80)
     print(f"[done] Results saved to {out_csv}")
     print(f"[done] Predictions (if enabled) under {os.path.join(save_dir, 'predictions')}")
+    print(f"[done] Note: mse/mse_norm – original vs normalized (TiDE Table 2). Requirement uses mse (original); paper comparability uses mse_norm.")
 
-    # Pretty summary via pandas/tabulate
+    # Pretty summary via pandas/tabulate – TiDE Table 2 style (normalized) plus requirement (original)
     try:
         from tabulate import tabulate
-        # Pivot for readability: dataset x model MSE per horizon? We'll just print full table
-        print("\n=== Summary (MSE/MAE) ===")
-        print(tabulate(df[["dataset", "horizon", "model", "mse", "mae", "train_time_per_epoch_s", "peak_memory_mb"]],
-                       headers="keys", tablefmt="psql", floatfmt=".4f", showindex=False))
-        # Aggregated mean per model
-        print("\n=== Mean across datasets & horizons (excl. NaN) ===")
+        cols = ["dataset", "horizon", "model", "seed", "mse", "mse_norm", "mae", "mae_norm", "train_time_per_epoch_s", "inference_ms_per_batch", "peak_memory_mb"]
+        cols = [c for c in cols if c in df.columns]
+        print("\n=== Summary (MSE/MAE) – original + normalized (TiDE Table 2) ===")
+        print(tabulate(df[cols], headers="keys", tablefmt="psql", floatfmt=".4f", showindex=False))
+        # Aggregated mean per model – both scales, with std for multi-seed (TiDE reports mean±std over 5 runs)
+        print("\n=== Mean across datasets & horizons (excl. NaN) – original ===")
         agg = df.groupby("model")[["mse", "mae"]].mean().round(4)
         print(tabulate(agg.reset_index(), headers="keys", tablefmt="psql", showindex=False))
+        print("\n=== Mean normalized (TiDE Table 2 comparable) ===")
+        agg_n = df.groupby("model")[["mse_norm", "mae_norm"]].mean().round(4)
+        print(tabulate(agg_n.reset_index(), headers="keys", tablefmt="psql", showindex=False))
+        if len(seeds_list) > 1:
+            print("\n=== Per (dataset,horizon,model) mean±std over seeds (normalized) ===")
+            g = df.groupby(["dataset", "horizon", "model"])[["mse_norm", "mae_norm"]].agg(["mean", "std"]).round(4)
+            print(g.to_string())
     except ImportError:
-        # Fallback to pandas string
         print(df.to_string())
-        print("\nMean per model:")
+        print("\nMean per model (original):")
         print(df.groupby("model")[["mse", "mae"]].mean())
+        print("\nMean normalized:")
+        print(df.groupby("model")[["mse_norm", "mae_norm"]].mean())
 
     return df
