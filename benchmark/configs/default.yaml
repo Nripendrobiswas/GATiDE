@@ -1,0 +1,85 @@
+# Default benchmark configuration
+# Overridden via CLI args in run_benchmark.py
+
+data:
+  csv_dir: "E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data"  # path to data/ with ETT*.csv etc.
+  datasets: ["ETTh1", "ETTh2", "ETTm1", "ETTm2", "electricity", "weather", "traffic"]
+  # auto-discovery: if null, use all CSVs found in csv_dir
+  datasets_auto: true
+  lookback: 720                          # L
+  horizons: [96, 192, 336, 720]          # H candidates
+  split: [0.70, 0.10, 0.20]               # sequential train/val/test
+  scaler: "standard"                     # standard (zero-mean, unit-variance) fit on train only
+
+training:
+  batch_size: 32
+  n_epochs: 100
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  optimizer: "adamw"                     # adamw | adam
+  scheduler: "cosine"                    # cosine | step | none
+  scheduler_params:
+    T_max: 100                           # for CosineAnnealingLR
+    step_size: 30                        # for StepLR
+    gamma: 0.5
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 1.0e-4
+  grad_clip: 1.0
+  num_workers: 0
+  seed: 42
+  device: "auto"                         # auto | cpu | cuda
+  amp: false                             # mixed precision
+
+model:
+  # Shared defaults; per-model overrides below
+  hidden_size: 128
+  num_encoder_layers: 2
+  num_decoder_layers: 2
+  decoder_output_dim: 16
+  temporal_decoder_hidden: 32
+  temporal_width_past: 4
+  temporal_width_future: 4
+  dropout: 0.1
+  use_layer_norm: false
+  num_heads: 4                           # PatchTST heads, GATiDE heads
+
+models:
+  gatide:
+    hidden_size: 256
+    num_encoder_layers: 1
+    num_decoder_layers: 1
+    decoder_output_dim: 16
+    temporal_decoder_hidden: 32
+    dropout: 0.1
+    num_attn_heads: 4
+    use_layer_norm: false
+  tide:
+    hidden_size: 256
+    num_encoder_layers: 1
+    num_decoder_layers: 1
+    decoder_output_dim: 16
+    temporal_decoder_hidden: 32
+    dropout: 0.1
+    use_layer_norm: false
+  dlinear:
+    kernel_size: 25
+    individual: false                    # if true, per-channel linear layers
+  patchtst:
+    patch_len: 16
+    stride: 8
+    n_layers: 2
+    d_model: 128
+    n_heads: 4
+    d_ff: 256
+    dropout: 0.1
+    act: "gelu"
+  naive:
+    strategy: "last"                     # last | mean | drift
+
+benchmark:
+  save_dir: "./benchmark_outputs"
+  save_predictions: true
+  results_csv: "benchmark_results.csv"
+  verbose: true
