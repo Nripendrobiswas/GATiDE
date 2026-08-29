@@ -79,7 +79,7 @@ def sample_tide_gatide(trial: optuna.Trial, model_name: str) -> Dict[str, Any]:
         "num_attn_heads": 4,
         # learning rate – log scale, TiDE default 1e-3, we search around it
         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+        "_batch_size": 512,
     }
 
 def sample_dlinear(trial: optuna.Trial) -> Dict[str, Any]:
@@ -87,7 +87,7 @@ def sample_dlinear(trial: optuna.Trial) -> Dict[str, Any]:
         "kernel_size": trial.suggest_categorical("kernel_size", [25, 51, 75]),
         "individual": trial.suggest_categorical("individual", [False, True]),
         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+        "_batch_size": 512,
     }
 
 def sample_patchtst(trial: optuna.Trial) -> Dict[str, Any]:
@@ -106,14 +106,14 @@ def sample_patchtst(trial: optuna.Trial) -> Dict[str, Any]:
         "d_ff": trial.suggest_categorical("d_ff", [128, 256]),
         "dropout": trial.suggest_categorical("dropout", [0.1, 0.2]),
         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+        "_batch_size": 512,
     }
 
 def sample_naive(trial: optuna.Trial) -> Dict[str, Any]:
     return {
         "strategy": trial.suggest_categorical("strategy", ["last", "mean"]),
         "_lr": 1e-3,
-        "_batch_size": 32,
+        "_batch_size": 512,
     }
 
 
@@ -136,7 +136,7 @@ def run_one_trial(
     """Train one trial and return val mse_norm (minimize)."""
     # Separate model kwargs from training overrides
     lr = params.pop("_lr", 1e-3)
-    batch_size = params.pop("_batch_size", 32)
+    batch_size = params.pop("_batch_size", 512)
 
     split = load_and_split(csv_dir, dataset, lookback=lookback, horizon=horizon,
                            split_convention=split_convention, use_covariates=False)
@@ -225,7 +225,7 @@ def main():
                 if model_name == "naive":
                     print(f"[skip] {dataset} H={horizon} {model_name} – no hyperparameters")
                     # Save dummy
-                    best = {"strategy": "last"}
+                    best = {"strategy": "last", "batch_size": 512}
                     out_path = os.path.join(args.out_dir, f"{dataset}_H{horizon}_{model_name}_best.json")
                     with open(out_path, "w") as f:
                         json.dump({"best_params": best, "best_value": None, "n_trials": 0}, f, indent=2)
@@ -233,7 +233,6 @@ def main():
 
                 study_name = f"{dataset}_H{horizon}_{model_name}"
                 storage = f"sqlite:///{os.path.join(args.out_dir, study_name + '_study.db')}"
-                # Remove old study.db if exists for fresh run? Keep for resume
                 sampler = TPESampler(seed=args.seed)
                 pruner = MedianPruner(n_warmup_steps=5)
                 study = optuna.create_study(
@@ -254,8 +253,7 @@ def main():
                         # Recover lr/batch
                         if "_lr" in study.best_params:
                             best_params["lr"] = study.best_params["_lr"]
-                        if "_batch_size" in study.best_params:
-                            best_params["batch_size"] = study.best_params["_batch_size"]
+                        best_params["batch_size"] = study.best_params.get("_batch_size", 512)
                         out_path = os.path.join(args.out_dir, f"{study_name}_best.json")
                         if not os.path.exists(out_path):
                             with open(out_path, "w") as f:
@@ -297,9 +295,9 @@ def main():
                         # Return large value to prune
                         return float("inf")
 
-                    # Report intermediate (if we had epoch-wise values we could prune, but we only have final val)
+                    # Report intermediate
                     trial.set_user_attr("lr", params.get("_lr", 1e-3))
-                    trial.set_user_attr("batch_size", params.get("_batch_size", 32))
+                    trial.set_user_attr("batch_size", params.get("_batch_size", 512))
                     return val_mse_norm
 
                 # Optimize remaining trials
@@ -313,8 +311,7 @@ def main():
                 best_params = {k: v for k, v in best_params_raw.items() if not k.startswith("_")}
                 if "_lr" in best_params_raw:
                     best_params["lr"] = best_params_raw["_lr"]
-                if "_batch_size" in best_params_raw:
-                    best_params["batch_size"] = best_params_raw["_batch_size"]
+                best_params["batch_size"] = best_params_raw.get("_batch_size", 512)
 
                 out_path = os.path.join(args.out_dir, f"{study_name}_best.json")
                 with open(out_path, "w") as f:
