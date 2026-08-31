@@ -1,0 +1,12 @@
+ETTh1:
+  '96':
+    gatide:
+      hidden_size: 128
+      num_encoder_layers: 1
+      num_decoder_layers: 1
+      decoder_output_dim: 8
+      temporal_decoder_hidden: 64
+      dropout: 0.1
+      use_layer_norm: true
+      lr: 0.004232010666246005
+      batch_size: 512
