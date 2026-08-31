@@ -64,16 +64,16 @@ from benchmark.trainer import train_one_model
 def sample_tide_gatide(trial: optuna.Trial, model_name: str) -> Dict[str, Any]:
     """TiDE/GATiDE shared space – Appendix B.3 + hidden_size divisibility for GATiDE."""
     # For GATiDE, hidden must be divisible by num_heads (4)
-    hidden_choices = [128, 256, 512]
+    hidden_choices = [128, 256, 512, 1024]
     hidden_size = trial.suggest_categorical("hidden_size", hidden_choices)
     # GATiDE validation done in model, but keep choices divisible
     return {
         "hidden_size": hidden_size,
-        "num_encoder_layers": trial.suggest_int("num_encoder_layers", 1, 2),
-        "num_decoder_layers": trial.suggest_int("num_decoder_layers", 1, 2),
-        "decoder_output_dim": trial.suggest_categorical("decoder_output_dim", [8, 16, 32]),
+        "num_encoder_layers": trial.suggest_int("num_encoder_layers", [1, 2, 3]),
+        "num_decoder_layers": trial.suggest_int("num_decoder_layers", [1, 2, 3]),
+        "decoder_output_dim": trial.suggest_categorical("decoder_output_dim", [4, 8, 16, 32]),
         "temporal_decoder_hidden": trial.suggest_categorical("temporal_decoder_hidden", [32, 64, 128]),
-        "dropout": trial.suggest_categorical("dropout", [0.1, 0.2, 0.3]),
+        "dropout": trial.suggest_categorical("dropout", [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]),
         "use_layer_norm": trial.suggest_categorical("use_layer_norm", [False, True]),
         # num_attn_heads fixed 4 for gatide to keep hidden divisible; tide ignores
         "num_attn_heads": 4,
