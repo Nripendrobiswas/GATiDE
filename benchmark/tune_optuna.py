@@ -69,11 +69,11 @@ def sample_tide_gatide(trial: optuna.Trial, model_name: str) -> Dict[str, Any]:
     # GATiDE validation done in model, but keep choices divisible
     return {
         "hidden_size": hidden_size,
-        "num_encoder_layers": trial.suggest_int("num_encoder_layers", [1, 2, 3]),
-        "num_decoder_layers": trial.suggest_int("num_decoder_layers", [1, 2, 3]),
+        "num_encoder_layers": trial.suggest_int("num_encoder_layers", 1, 2),
+        "num_decoder_layers": trial.suggest_int("num_decoder_layers", 1, 2),
         "decoder_output_dim": trial.suggest_categorical("decoder_output_dim", [4, 8, 16, 32]),
         "temporal_decoder_hidden": trial.suggest_categorical("temporal_decoder_hidden", [32, 64, 128]),
-        "dropout": trial.suggest_categorical("dropout", [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]),
+        "dropout": trial.suggest_categorical("dropout", [0.1, 0.2, 0.3, 0.4, 0.5]),
         "use_layer_norm": trial.suggest_categorical("use_layer_norm", [False, True]),
         # num_attn_heads fixed 4 for gatide to keep hidden divisible; tide ignores
         "num_attn_heads": 4,
