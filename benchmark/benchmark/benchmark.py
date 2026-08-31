@@ -47,7 +47,7 @@ def run_benchmark(
     horizons: List[int] = [96, 192, 336, 720],
     models: List[str] = ["gatide", "tide", "dlinear", "patchtst", "naive"],
     lookback: int = 720,
-    batch_size: int = 32,
+    batch_size: int = 512,
     n_epochs: int = 100,
     lr: float = 1e-3,
     weight_decay: float = 1e-4,
