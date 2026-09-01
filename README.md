@@ -1,5 +1,5 @@
 # GATiDE: Gated Attention Time-series Dense Encoder 
-[![License](https://img.shields.io/github/license/Nripendrobiswas/GATiDE)](https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/Nripendrobiswas/GATiDE)](LICENSE)
 
 Reference implementation and benchmark code for *[paper title]*.
 
