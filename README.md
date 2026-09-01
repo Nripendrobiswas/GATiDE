@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="GATiDE_LOGO.jpeg" alt="GATiDE Logo" width="600"/>
-</p>
-
-<p align="center">
-  <a href="https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License">
-  </a>
+  <img src="GATiDE_LOGO.jpeg" alt="GATiDE Logo" width="800"/>
 </p>
 
 # GATiDE: Gated-Attention Time-Series Dense Encoder
