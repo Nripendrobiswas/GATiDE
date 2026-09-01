@@ -92,6 +92,16 @@ the fusion mode, which this implementation does not expose. Report the
 comparison as between two models, not as an ablation.
 
 ## Reproducing the paper
+**Diagnostics**
+```bash
+# 0. Verify the environment and produce the diagnostic tables (~1 min, CPU).
+!python GATiDE/scripts/run_diagnostics.py --all
+# 1. Individual diagnostics:
+!python GATiDE/scripts/run_diagnostics.py --params       # parameter-cost table
+!python GATiDE/scripts/run_diagnostics.py --layernorm    # LayerNorm diagnostic
+!python GATiDE/scripts/run_diagnostics.py --precision    # precision check
+!python GATiDE/scripts/run_diagnostics.py --layout       # layout verification
+```
 
 ```bash
 # 0. Verify the environment and produce the diagnostic tables (~1 min, CPU).
