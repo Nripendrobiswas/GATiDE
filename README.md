@@ -1,4 +1,5 @@
-# GA-TiDE: Gated-Attention Time-series Dense Encoder
+# GATiDE: Gated Attention Time-series Dense Encoder 
+[![License]([https://img.shields.io/github/license/alibaba/MNN](https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE))](LICENSE.txt)
 
 Reference implementation and benchmark code for *[paper title]*.
 
