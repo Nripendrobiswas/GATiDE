@@ -15,7 +15,7 @@ Reference implementation and benchmark code for *[paper title]*.
 </p>
 GA-TiDE extends TiDE (Das et al., 2023) with two modifications:
 
-1. a **gated residual block** — a <strong>sigmoid gate</strong> on the nonlinear branch of
+1. a **Gated Residual Block** — a <strong>sigmoid gate</strong> on the nonlinear branch of
    TiDE's residual block, leaving the activation, dropout placement and linear
    skip unchanged;
 2. **Segment Attention Fusion** - the flattened input segments (target
