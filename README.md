@@ -103,14 +103,16 @@ comparison as between two models, not as an ablation.
 !python GATiDE/scripts/run_diagnostics.py --precision    # precision check
 !python GATiDE/scripts/run_diagnostics.py --layout       # layout verification
 ```
-
+**Hypertune**
 ```bash
 # 0. Hyperparameters are searched separately per model with an equal trial budget:
 !python GATiDE/benchmark/tune_optuna.py --csv-dir GATiDE/data --dataset ETTh1 --horizon 96 --model gatide --n-trials 50 --device cuda
 # 1. Hyperparameters are searched for all models with an equal trial budget:
 !python GATiDE/benchmark/tune_optuna.py --csv-dir GATiDE/data --dataset all --horizon 96 --model all --n-trials 50 --device cuda
-
-# 2. Benchmark test of GATiDE model with Tune parameters
+```
+**Benchmark Test**
+```bash
+# 0. Benchmark test of GATiDE model with Tune parameters
 !python GATiDE/benchmark/run_benchmark.py \
   --csv-dir GATiDE/data \
   --datasets ETTh1 \
@@ -141,12 +143,6 @@ Results append to `results/results.csv`, keyed on
 | Precision check | `run_diagnostics.py --precision` | `results/precision.csv` |
 | Layout verification | `run_diagnostics.py --layout` | `results/layout.csv` |
 
-Hyperparameters are searched separately per model with an equal trial budget:
-
-```bash
-python scripts/tune_optuna.py --dataset ETTh1 --horizon 96 --model tide    --n-trials 50
-python scripts/tune_optuna.py --dataset ETTh1 --horizon 96 --model ga-tide --n-trials 50
-```
 
 ## Benchmark protocol
 
