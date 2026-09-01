@@ -3,6 +3,7 @@
 
 Reference implementation and benchmark code for *[paper title]*.
 
+## INTRO
 GA-TiDE extends TiDE (Das et al., 2023) with two modifications:
 
 1. a **gated residual block** — a sigmoid gate on the nonlinear branch of
