@@ -41,17 +41,15 @@ It is implemented as a drop-in subclass of the Darts `TiDEModel`: `fit`,
 !pip install -e GATiDE/
 ```
 
-
-```bash
-git clone https://github.com/<user>/ga-tide.git
-cd ga-tide
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -e .
-```
-
-The `darts` version is pinned deliberately — GA-TiDE subclasses private Darts
+The `darts` version is pinned deliberately - GATiDE subclasses private Darts
 internals. See `requirements.txt`.
+
+## Model Import
+```python
+import sys
+sys.path.insert(0, "GATiDE/src")
+from ga_tide import GATiDEModel
+```
 
 ## Quick start
 
