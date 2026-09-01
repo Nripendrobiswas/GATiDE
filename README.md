@@ -96,6 +96,7 @@ comparison as between two models, not as an ablation.
 ```bash
 # 0. Verify the environment and produce the diagnostic tables (~1 min, CPU).
 !python GATiDE/scripts/run_diagnostics.py --all
+
 # 1. Individual diagnostics:
 !python GATiDE/scripts/run_diagnostics.py --params       # parameter-cost table
 !python GATiDE/scripts/run_diagnostics.py --layernorm    # LayerNorm diagnostic
@@ -104,14 +105,29 @@ comparison as between two models, not as an ablation.
 ```
 
 ```bash
-# 0. Verify the environment and produce the diagnostic tables (~1 min, CPU).
-python scripts/run_diagnostics.py --all
+# 0. Hyperparameters are searched separately per model with an equal trial budget:
+!python GATiDE/benchmark/tune_optuna.py --csv-dir GATiDE/data --dataset ETTh1 --horizon 96 --model gatide --n-trials 50 --device cuda
+# 1. Hyperparameters are searched for all models with an equal trial budget:
+!python GATiDE/benchmark/tune_optuna.py --csv-dir GATiDE/data --dataset all --horizon 96 --model all --n-trials 50 --device cuda
 
-# 1. Both models on one dataset/horizon.
-python scripts/benchmark.py --dataset ETTh1 --horizon 96 --model all --seeds 3
-
-# 2. Main results across all datasets and horizons.
-python scripts/benchmark.py --dataset all --all-horizons --model all --seeds 3
+# 2. Benchmark test of GATiDE model with Tune parameters
+!python GATiDE/benchmark/run_benchmark.py \
+  --csv-dir GATiDE/data \
+  --datasets ETTh1 \
+  --all-horizons \
+  --models gatide \
+  --model-kwargs '{"hidden_size":128,"num_encoder_layers":2,"num_decoder_layers":2,"decoder_output_dim":4,"temporal_decoder_hidden":128,"dropout":0.3,"use_layer_norm":true}' \
+  --tune-lr 0.003605103016463524 \
+  --tune-batch-size 512 \
+  --weight-decay 1e-4 \
+  --optimizer adamw \
+  --scheduler cosine \
+  --patience 5 \
+  --grad-clip 1.0 \
+  --epochs 100 \
+  --device cuda \
+  --split-convention tide \
+  --save-dir GATiDE/benchmark_GATiDE
 ```
 
 Results append to `results/results.csv`, keyed on
