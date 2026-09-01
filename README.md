@@ -11,7 +11,7 @@ Reference implementation and benchmark code for *[paper title]*.
 ## INTRO
 <p align="center">
   <img src="GATiDE_Model.png" alt="GATiDE Logo" width="500"/>
-  <Center>Figure: The Architecture of GATiDE Model.</Center>
+  Figure: The Architecture of GATiDE Model.
 </p>
 GA-TiDE extends TiDE (Das et al., 2023) with two modifications:
 
