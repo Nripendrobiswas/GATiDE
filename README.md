@@ -9,6 +9,9 @@
 Reference implementation and benchmark code for *[paper title]*.
 
 ## INTRO
+<p align="center">
+  <img src="GATiDE_Architecture.PNG" alt="GATiDE Logo" width="800"/>
+</p>
 GA-TiDE extends TiDE (Das et al., 2023) with two modifications:
 
 1. a **gated residual block** — a sigmoid gate on the nonlinear branch of
