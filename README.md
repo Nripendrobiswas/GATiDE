@@ -15,13 +15,13 @@ Reference implementation and benchmark code for *[paper title]*.
 </p>
 GA-TiDE extends TiDE (Das et al., 2023) with two modifications:
 
-1. a **gated residual block** — a sigmoid gate on the nonlinear branch of
+1. a **gated residual block** — a <strong>sigmoid gate</strong> on the nonlinear branch of
    TiDE's residual block, leaving the activation, dropout placement and linear
    skip unchanged;
-2. **Segment Attention Fusion** — the flattened input segments (target
+2. **Segment Attention Fusion** - the flattened input segments (target
    lookback, past covariates, future covariates, static attributes) are
    projected to a common width, treated as tokens, and passed through one
-   multi-head self-attention layer before entering the encoder, instead of
+   multi-head self-attention (MHSA) layer before entering the encoder, instead of
    being concatenated directly.
 
 It is implemented as a drop-in subclass of the Darts `TiDEModel`: `fit`,
