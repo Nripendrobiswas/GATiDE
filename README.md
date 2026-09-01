@@ -34,6 +34,14 @@ It is implemented as a drop-in subclass of the Darts `TiDEModel`: `fit`,
 
 ## Installation
 
+### Working in the kaggle env
+```bash
+!git clone https://github.com/Nripendrobiswas/GATiDE.git
+!pip install -r GATiDE/requirements.txt
+!pip install -e GATiDE/
+```
+
+
 ```bash
 git clone https://github.com/<user>/ga-tide.git
 cd ga-tide
