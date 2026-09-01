@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="GATiDELOGO.jpeg" alt="GATiDE Logo" width="1000"/>
+  <img src="GATiDE.png" alt="GATiDE Logo" width="1000"/>
 </p>
 
 # GATiDE: Gated-Attention Time-Series Dense Encoder
