@@ -8,7 +8,7 @@
 
 Reference implementation and benchmark code for *[paper title]*.
 
-## INTRO
+## Intro
 <p align="center">
   <img src="GATiDE_Model.png" alt="GATiDE Logo" width="500"/><br>
   Figure: The Architecture of GATiDE Model.
