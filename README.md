@@ -220,7 +220,7 @@ gatide_model = GATiDEModel(
 )
 
 model.fit(series, future_covariates=covariates)
-pred = model.predict(n=horizon, future_covariates=covariates)
+pred = model.predict(n=horizon, future_covariates=covariates, random_state=42)
 
 ```
 
