@@ -189,13 +189,14 @@ darts 0.46.1 · torch 2.10.0+cu128 · pytorch-lightning 2.6.5 · numpy 2.0.2
 import sys
 sys.path.insert(0, "GATiDE/src")
 from ga_tide import GATiDEModel
-
+```
+```bash
 # 1. Push dataset into data folder
 !cp "Dataset.csv" GATiDE/data/my_dataset.csv
-
 # 2. Hypertune GATiDE model with the dataset
 !python GATiDE/benchmark/tune_optuna.py --csv-dir GATiDE/data --dataset my_dataset --horizon 96 --model gatide --n-trials 50 --device cuda
-
+```
+```bash
 # 3. Model Training with Tuned parameters
 
 from ga_tide import GATiDEModel
