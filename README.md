@@ -180,6 +180,50 @@ changes either.
 
 darts 0.46.1 · torch 2.10.0+cu128 · pytorch-lightning 2.6.5 · numpy 2.0.2
 
+## Work with any Dataset 
+```bash
+# 0. Installation and Environment set-up
+!git clone https://github.com/Nripendrobiswas/GATiDE.git
+!pip install -r GATiDE/requirements.txt
+!pip install -e GATiDE/
+import sys
+sys.path.insert(0, "GATiDE/src")
+from ga_tide import GATiDEModel
+
+# 1. Push dataset into data folder
+!cp "Dataset.csv" GATiDE/data/my_dataset.csv
+
+# 2. Hypertune GATiDE model with the dataset
+!python GATiDE/benchmark/tune_optuna.py --csv-dir GATiDE/data --dataset my_dataset --horizon 96 --model gatide --n-trials 50 --device cuda
+
+# 3. Model Training with Tuned parameters
+
+from ga_tide import GATiDEModel
+early_stopper = EarlyStopping(
+    monitor="val_loss",
+    patience=10,
+    min_delta=1e-4,
+    mode="min",
+    verbose=True,
+)
+gatide_model = GATiDEModel(
+    num_attn_heads=4,
+    input_chunk_length=720,
+    output_chunk_length=horizon,
+    n_epochs=100,
+    random_state=42,
+    batch_size=32, 
+    pl_trainer_kwargs={
+        "accumulate_grad_batches": 16,
+        "callbacks": [early_stopper, TQDMProgressBar(refresh_rate=20)],
+    }
+)
+
+model.fit(series, future_covariates=covariates)
+pred = model.predict(n=horizon, future_covariates=covariates)
+
+```
+
 ## Citation
 
 ```bibtex
