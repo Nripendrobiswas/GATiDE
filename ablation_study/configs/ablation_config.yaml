@@ -1,0 +1,79 @@
+# Ablation study config - standalone, does not override benchmark/configs/default.yaml
+# Usage: python ablation_study/run_ablation.py --config ablation_study/configs/ablation_config.yaml
+
+data:
+  csv_dir: "GATiDE/data"  # override via --csv-dir
+  datasets: ["ETTh1"]
+  lookback: 720
+  horizons: [96]
+  split_convention: "tide"  # tide 7:1:2 | prior-work 6:2:2
+  use_covariates: false
+
+training:
+  batch_size: 32
+  n_epochs: 100
+  lr: 0.001
+  weight_decay: 0.0001
+  optimizer: "adamw"
+  scheduler: "cosine"
+  scheduler_params:
+    T_max: 100
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0001
+  grad_clip: 1.0
+  device: "auto"
+  amp: false
+  seed: 42
+  seeds: [0, 1, 2, 3, 4]  # 5-seed mean±std TiDE Table 2
+
+ablation:
+  # Variants defined in ablation_study/models/gatide_ablation.py
+  # gatide = GRB+LN+Skip, gatide_nogate = RB+LN+Skip, gatide_no_ln = GRB no LN, gatide_no_skip = GRB+LN no skip
+  # plus external baselines tide/dlinear/patchtst/naive from benchmark/models
+  variants: ["gatide", "gatide_nogate", "tide"]
+  # Per-variant overrides (applied via model_kwargs)
+  model_kwargs:
+    gatide:
+      hidden_size: 256
+      num_encoder_layers: 1
+      num_decoder_layers: 1
+      decoder_output_dim: 16
+      temporal_decoder_hidden: 32
+      dropout: 0.1
+      use_layer_norm: true
+      use_gating: true
+      use_skip: true
+    gatide_nogate:
+      hidden_size: 256
+      num_encoder_layers: 1
+      num_decoder_layers: 1
+      decoder_output_dim: 16
+      temporal_decoder_hidden: 32
+      dropout: 0.1
+      use_layer_norm: true
+      use_gating: false
+      use_skip: true
+    gatide_no_ln:
+      hidden_size: 256
+      num_encoder_layers: 1
+      num_decoder_layers: 1
+      decoder_output_dim: 16
+      temporal_decoder_hidden: 32
+      dropout: 0.1
+      use_layer_norm: false
+      use_gating: true
+      use_skip: true
+    tide:
+      hidden_size: 256
+      num_encoder_layers: 1
+      num_decoder_layers: 1
+      decoder_output_dim: 16
+      temporal_decoder_hidden: 32
+      dropout: 0.1
+      use_layer_norm: false
+
+benchmark:
+  save_dir: "./ablation_study/results"
+  save_predictions: true
