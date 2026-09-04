@@ -31,26 +31,112 @@ import yaml
 from pathlib import Path
 
 # Ensure repo root and benchmark are importable regardless of cwd
+# Robust search for benchmark/datasets.py across Kaggle + local layouts
 THIS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = THIS_DIR.parent
-# When ablation_study is at GATiDE/ablation_study, REPO_ROOT is GATiDE
-# When running from ablation/ablation_study, parent is ablation, grandparent is GATiDE Final Verse/GATiDE etc -> add both
-for p in [REPO_ROOT, REPO_ROOT.parent, Path.cwd(), Path(__file__).resolve().parents[2]]:
-    if str(p) not in sys.path:
+# Make THIS_DIR importable for `import models.gatide_ablation`
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
+
+def _find_benchmark_root():
+    # Explicit candidates (Kaggle + local)
+    explicit = [
+        THIS_DIR.parent / "benchmark",  # GATiDE/benchmark when ablation_study at GATiDE/ablation_study
+        THIS_DIR / "benchmark",
+        Path.cwd() / "benchmark",
+        Path.cwd() / "GATiDE" / "benchmark",
+        Path.cwd() / "ablation" / "benchmark",
+        THIS_DIR.parent.parent / "benchmark",
+        THIS_DIR.parent.parent / "ablation" / "benchmark",
+        Path(__file__).resolve().parents[2] / "benchmark",
+        Path(__file__).resolve().parents[3] / "benchmark",
+        Path("E:/Machine Learning Research/GATiDE Final Verse/ablation/benchmark"),
+        Path("E:/Machine Learning Research/GATiDE Final Verse/GATiDE/benchmark"),
+        Path("/kaggle/working/GATiDE/benchmark"),
+        Path("/kaggle/working/benchmark"),
+    ]
+    candidates = []
+    # Add explicit first
+    for cand in explicit:
+        try:
+            if (cand / "datasets.py").exists():
+                candidates.append(cand.parent)
+        except Exception:
+            pass
+    # Walk up from THIS_DIR and cwd (including GATiDE subfolder check)
+    for base in [THIS_DIR, THIS_DIR.parent, Path.cwd(), Path.cwd() / "GATiDE"]:
+        try:
+            cur = base.resolve()
+        except Exception:
+            continue
+        for _ in range(8):
+            if (cur / "benchmark" / "datasets.py").exists():
+                if cur not in candidates:
+                    candidates.append(cur)
+                break
+            if (cur / "GATiDE" / "benchmark" / "datasets.py").exists():
+                if (cur / "GATiDE") not in candidates:
+                    candidates.append(cur / "GATiDE")
+                break
+            if (cur / "ablation" / "benchmark" / "datasets.py").exists():
+                if (cur / "ablation") not in candidates:
+                    candidates.append(cur / "ablation")
+                break
+            if cur.parent == cur:
+                break
+            cur = cur.parent
+    # Return first candidate that exists
+    for c in candidates:
+        if (c / "benchmark" / "datasets.py").exists():
+            return c
+    return None
+
+BENCHMARK_ROOT = _find_benchmark_root()
+if BENCHMARK_ROOT is None:
+    # Try fallback: THIS_DIR.parent
+    BENCHMARK_ROOT = THIS_DIR.parent
+    print(f"[warn] benchmark/datasets.py not found via search, fallback to {BENCHMARK_ROOT}")
+    print(f"[warn] Searched candidates, sys.path will be {sys.path}, cwd={Path.cwd()}, THIS_DIR={THIS_DIR}")
+else:
+    print(f"[info] Found benchmark at {BENCHMARK_ROOT / 'benchmark'}")
+
+# Ensure benchmark root is in sys.path
+for p in [BENCHMARK_ROOT, THIS_DIR, Path.cwd(), Path.cwd() / "GATiDE"]:
+    if p.exists() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
-# Also ensure benchmark package is importable when running from ablation folder with separate benchmark copy
-# ablation folder has its own benchmark copy at ../benchmark
-ABLATION_PARENT = THIS_DIR.parent
-if (ABLATION_PARENT / "benchmark").exists() and str(ABLATION_PARENT) not in sys.path:
-    sys.path.insert(0, str(ABLATION_PARENT))
+# Also ensure parent of benchmark root (for nested layouts) is not needed, but add REPO_ROOT for compatibility
+REPO_ROOT = BENCHMARK_ROOT  # alias for later code that uses REPO_ROOT
+
+# Debug hint if benchmark still not found (helps Kaggle)
+try:
+    import benchmark.datasets  # noqa: F401
+except ModuleNotFoundError as e:
+    print(f"[error] benchmark not found. sys.path={sys.path}")
+    print(f"[debug] THIS_DIR={THIS_DIR}, BENCHMARK_ROOT={BENCHMARK_ROOT}, cwd={Path.cwd()}")
+    print(f"[debug] BENCHMARK_ROOT/benchmark exists={(BENCHMARK_ROOT/'benchmark').exists() if BENCHMARK_ROOT else 'N/A'}")
+    print(f"[debug] cwd/benchmark={(Path.cwd()/'benchmark').exists()}, cwd/GATiDE/benchmark={(Path.cwd()/'GATiDE'/'benchmark').exists()}")
+    print(f"[debug] THIS_DIR.parent/benchmark={(THIS_DIR.parent/'benchmark').exists()}, THIS_DIR.parent.parent/ablation/benchmark={(THIS_DIR.parent.parent/'ablation'/'benchmark').exists()}")
+    raise
 
 # Imports after path setup
 from benchmark.datasets import load_and_split, make_loaders, discover_datasets
 from benchmark.trainer import train_one_model
 from benchmark.models import get_model as get_benchmark_model  # for tide/dlinear baselines
 
-# Local ablation models
-from models.gatide_ablation import GATiDEAblation, GATiDE_Gated, GATiDE_NoGate, GATiDE_NoLN, GATiDE_NoSkip
+# Local ablation models - robust import (works whether `models` is top-level or ablation_study.models)
+try:
+    from models.gatide_ablation import GATiDEAblation, GATiDE_Gated, GATiDE_NoGate, GATiDE_NoLN, GATiDE_NoSkip
+except ModuleNotFoundError:
+    # Fallback: load via importlib from file path (Kaggle-safe)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gatide_ablation", THIS_DIR / "models" / "gatide_ablation.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)
+    GATiDEAblation = mod.GATiDEAblation
+    GATiDE_Gated = mod.GATiDE_Gated
+    GATiDE_NoGate = mod.GATiDE_NoGate
+    GATiDE_NoLN = mod.GATiDE_NoLN
+    GATiDE_NoSkip = mod.GATiDE_NoSkip
 
 ABLATION_REGISTRY = {
     "gatide": GATiDE_Gated,
