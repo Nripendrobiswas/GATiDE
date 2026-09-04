@@ -38,32 +38,48 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 def _find_benchmark_root():
-    # Explicit candidates (Kaggle + local)
-    explicit = [
-        THIS_DIR.parent / "benchmark",  # GATiDE/benchmark when ablation_study at GATiDE/ablation_study
-        THIS_DIR / "benchmark",
-        Path.cwd() / "benchmark",
+    """
+    Find the directory that should be in sys.path for `import benchmark.datasets`.
+    Handles two layouts:
+      - single: ablation/benchmark/datasets.py -> return ablation (so import benchmark.datasets -> ablation/benchmark/datasets.py)
+      - nested: GATiDE/benchmark/benchmark/datasets.py -> return GATiDE/benchmark (so import benchmark.datasets -> GATiDE/benchmark/benchmark/datasets.py)
+    """
+    explicit_roots = [
+        THIS_DIR.parent,  # GATiDE when ablation_study at GATiDE/ablation_study (nested case: GATiDE/benchmark/benchmark)
+        THIS_DIR.parent / "benchmark",  # also check GATiDE/benchmark as root for nested
+        Path.cwd(),
+        Path.cwd() / "GATiDE",
         Path.cwd() / "GATiDE" / "benchmark",
-        Path.cwd() / "ablation" / "benchmark",
-        THIS_DIR.parent.parent / "benchmark",
-        THIS_DIR.parent.parent / "ablation" / "benchmark",
-        Path(__file__).resolve().parents[2] / "benchmark",
-        Path(__file__).resolve().parents[3] / "benchmark",
-        Path("E:/Machine Learning Research/GATiDE Final Verse/ablation/benchmark"),
-        Path("E:/Machine Learning Research/GATiDE Final Verse/GATiDE/benchmark"),
+        Path.cwd() / "ablation",
+        THIS_DIR.parent.parent,
+        Path("E:/Machine Learning Research/GATiDE Final Verse/ablation"),
+        Path("E:/Machine Learning Research/GATiDE Final Verse/GATiDE"),
+        Path("/kaggle/working/GATiDE"),
         Path("/kaggle/working/GATiDE/benchmark"),
-        Path("/kaggle/working/benchmark"),
+        Path("/kaggle/working"),
     ]
     candidates = []
-    # Add explicit first
-    for cand in explicit:
+    for root in explicit_roots:
         try:
-            if (cand / "datasets.py").exists():
-                candidates.append(cand.parent)
+            # single-level: root/benchmark/datasets.py
+            if (root / "benchmark" / "datasets.py").exists():
+                # For single, root is the path to add (e.g., ablation)
+                if root not in candidates:
+                    candidates.append(root)
+            # nested: root/benchmark/benchmark/datasets.py -> need root/benchmark
+            if (root / "benchmark" / "benchmark" / "datasets.py").exists():
+                nested_root = root / "benchmark"
+                if nested_root not in candidates:
+                    candidates.append(nested_root)
+            # also check if root itself is benchmark package (contains datasets.py directly)
+            if (root / "datasets.py").exists() and (root / "__init__.py").exists():
+                # root is already benchmark package, need its parent
+                if root.parent not in candidates:
+                    candidates.append(root.parent)
         except Exception:
             pass
-    # Walk up from THIS_DIR and cwd (including GATiDE subfolder check)
-    for base in [THIS_DIR, THIS_DIR.parent, Path.cwd(), Path.cwd() / "GATiDE"]:
+    # Walk up from THIS_DIR and cwd
+    for base in [THIS_DIR, Path.cwd(), Path.cwd() / "GATiDE"]:
         try:
             cur = base.resolve()
         except Exception:
@@ -72,50 +88,116 @@ def _find_benchmark_root():
             if (cur / "benchmark" / "datasets.py").exists():
                 if cur not in candidates:
                     candidates.append(cur)
-                break
-            if (cur / "GATiDE" / "benchmark" / "datasets.py").exists():
-                if (cur / "GATiDE") not in candidates:
-                    candidates.append(cur / "GATiDE")
-                break
-            if (cur / "ablation" / "benchmark" / "datasets.py").exists():
-                if (cur / "ablation") not in candidates:
-                    candidates.append(cur / "ablation")
-                break
+            if (cur / "benchmark" / "benchmark" / "datasets.py").exists():
+                nested = cur / "benchmark"
+                if nested not in candidates:
+                    candidates.append(nested)
             if cur.parent == cur:
                 break
             cur = cur.parent
-    # Return first candidate that exists
+    # Prefer nested (more specific) for GitHub, then single
+    # Check candidates in order: first nested structure, then single
+    for c in candidates:
+        # If c is nested root (e.g., GATiDE/benchmark) then c/benchmark/datasets.py exists
+        if (c / "benchmark" / "datasets.py").exists() and (c / "benchmark" / "__init__.py").exists():
+            # This is the correct root for nested: e.g., GATiDE/benchmark
+            return c
     for c in candidates:
         if (c / "benchmark" / "datasets.py").exists():
             return c
+    for c in candidates:
+        if (c / "datasets.py").exists():
+            return c.parent
     return None
 
 BENCHMARK_ROOT = _find_benchmark_root()
 if BENCHMARK_ROOT is None:
-    # Try fallback: THIS_DIR.parent
     BENCHMARK_ROOT = THIS_DIR.parent
     print(f"[warn] benchmark/datasets.py not found via search, fallback to {BENCHMARK_ROOT}")
-    print(f"[warn] Searched candidates, sys.path will be {sys.path}, cwd={Path.cwd()}, THIS_DIR={THIS_DIR}")
+    print(f"[warn] Searched, sys.path={sys.path}, cwd={Path.cwd()}, THIS_DIR={THIS_DIR}")
 else:
-    print(f"[info] Found benchmark at {BENCHMARK_ROOT / 'benchmark'}")
+    # Determine actual benchmark package location for debug
+    if (BENCHMARK_ROOT / "benchmark" / "datasets.py").exists():
+        bench_pkg = BENCHMARK_ROOT / "benchmark"
+        print(f"[info] Found benchmark package at {bench_pkg} (single-level, root={BENCHMARK_ROOT})")
+    elif (BENCHMARK_ROOT / "datasets.py").exists():
+        bench_pkg = BENCHMARK_ROOT
+        print(f"[info] Found benchmark package at {bench_pkg} (direct)")
+    else:
+        bench_pkg = BENCHMARK_ROOT / "benchmark"
+        print(f"[info] Found benchmark root at {BENCHMARK_ROOT}, package at {bench_pkg}")
+    try:
+        # List contents
+        pkg_to_list = bench_pkg if bench_pkg.exists() else BENCHMARK_ROOT / "benchmark"
+        if pkg_to_list.exists():
+            print(f"[debug] Contents of {pkg_to_list}: {[p.name for p in pkg_to_list.iterdir()][:20]}")
+            print(f"[debug] datasets.py exists={(pkg_to_list/'datasets.py').exists()}, __init__.py exists={(pkg_to_list/'__init__.py').exists()}")
+        if (BENCHMARK_ROOT / "benchmark" / "benchmark").exists():
+            nested = BENCHMARK_ROOT / "benchmark" / "benchmark"
+            print(f"[debug] Nested {nested} exists: {[p.name for p in nested.iterdir()][:20] if nested.is_dir() else 'not dir'}")
+    except Exception as ex:
+        print(f"[debug] Failed to list: {ex}")
 
-# Ensure benchmark root is in sys.path
-for p in [BENCHMARK_ROOT, THIS_DIR, Path.cwd(), Path.cwd() / "GATiDE"]:
-    if p.exists() and str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+# Ensure correct root is in sys.path
+for p in [BENCHMARK_ROOT, THIS_DIR, Path.cwd(), Path.cwd() / "GATiDE", Path("/kaggle/working/GATiDE"), Path("/kaggle/working/GATiDE/benchmark")]:
+    try:
+        if p.exists() and str(p) not in sys.path:
+            # Only add if it looks like a valid root (contains benchmark package)
+            if (p / "benchmark" / "datasets.py").exists() or (p / "benchmark" / "benchmark" / "datasets.py").exists() or (p / "datasets.py").exists():
+                sys.path.insert(0, str(p))
+                print(f"[debug] Added to sys.path: {p}")
+    except Exception:
+        pass
 # Also ensure parent of benchmark root (for nested layouts) is not needed, but add REPO_ROOT for compatibility
 REPO_ROOT = BENCHMARK_ROOT  # alias for later code that uses REPO_ROOT
 
-# Debug hint if benchmark still not found (helps Kaggle)
+# Debug hint if benchmark still not found (helps Kaggle) - try importlib fallback
 try:
     import benchmark.datasets  # noqa: F401
 except ModuleNotFoundError as e:
-    print(f"[error] benchmark not found. sys.path={sys.path}")
+    print(f"[error] benchmark not found via normal import. sys.path={sys.path}")
     print(f"[debug] THIS_DIR={THIS_DIR}, BENCHMARK_ROOT={BENCHMARK_ROOT}, cwd={Path.cwd()}")
     print(f"[debug] BENCHMARK_ROOT/benchmark exists={(BENCHMARK_ROOT/'benchmark').exists() if BENCHMARK_ROOT else 'N/A'}")
     print(f"[debug] cwd/benchmark={(Path.cwd()/'benchmark').exists()}, cwd/GATiDE/benchmark={(Path.cwd()/'GATiDE'/'benchmark').exists()}")
     print(f"[debug] THIS_DIR.parent/benchmark={(THIS_DIR.parent/'benchmark').exists()}, THIS_DIR.parent.parent/ablation/benchmark={(THIS_DIR.parent.parent/'ablation'/'benchmark').exists()}")
-    raise
+    # Try importlib fallback: directly load datasets.py file
+    print("[info] Trying importlib fallback...")
+    import importlib.util
+    found = None
+    for cand in [BENCHMARK_ROOT / "benchmark" / "datasets.py", BENCHMARK_ROOT / "benchmark" / "benchmark" / "datasets.py", Path.cwd() / "GATiDE" / "benchmark" / "datasets.py", Path.cwd() / "benchmark" / "datasets.py", Path("/kaggle/working/GATiDE/benchmark/datasets.py"), Path("/kaggle/working/GATiDE/benchmark/benchmark/datasets.py")]:
+        if cand.exists():
+            found = cand
+            print(f"[info] Found datasets.py at {found}")
+            break
+    if found is None:
+        # Search walk
+        for base in [BENCHMARK_ROOT, Path.cwd(), Path("/kaggle/working")]:
+            for p in base.rglob("datasets.py"):
+                if "benchmark" in str(p):
+                    found = p
+                    print(f"[info] Found via rglob: {found}")
+                    break
+            if found:
+                break
+    if found:
+        # Add its benchmark parent to sys.path and retry
+        bench_pkg_root = found.parent.parent if found.parent.name == "benchmark" else found.parent
+        # If nested benchmark/benchmark/datasets.py, parent is benchmark/benchmark, need benchmark parent
+        if found.parent.name == "benchmark" and (found.parent.parent / "benchmark").exists():
+            # nested case: file at GATiDE/benchmark/benchmark/datasets.py -> need GATiDE/benchmark
+            bench_pkg_root = found.parent.parent
+        print(f"[info] Adding {bench_pkg_root} to sys.path for importlib fallback")
+        if str(bench_pkg_root) not in sys.path:
+            sys.path.insert(0, str(bench_pkg_root))
+        try:
+            import benchmark.datasets  # retry
+            print("[info] Fallback import succeeded")
+        except ModuleNotFoundError as e2:
+            print(f"[error] Fallback still failed: {e2}")
+            raise
+    else:
+        print("[error] Could not find datasets.py via search")
+        raise
 
 # Imports after path setup
 from benchmark.datasets import load_and_split, make_loaders, discover_datasets
