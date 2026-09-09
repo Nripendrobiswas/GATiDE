@@ -90,8 +90,8 @@ def objective(trial: optuna.Trial, args, data) -> float:
         decoder_output_dim=trial.suggest_categorical("decoder_output_dim", [4, 8, 16, 32]),
         temporal_decoder_hidden=trial.suggest_categorical(
             "temporal_decoder_hidden", [32, 64, 128]),
-        temporal_width_past=trial.suggest_int("temporal_width_past", 0, 8),
-        temporal_width_future=trial.suggest_int("temporal_width_future", 0, 8),
+        # temporal_width_past=trial.suggest_int("temporal_width_past", 0, 8),
+        # temporal_width_future=trial.suggest_int("temporal_width_future", 0, 8),
         dropout=trial.suggest_float("dropout", 0.0, 0.5, step=0.1),
         use_layer_norm=trial.suggest_categorical("use_layer_norm", [True, False]),
     )
@@ -99,7 +99,10 @@ def objective(trial: optuna.Trial, args, data) -> float:
         params["num_attn_heads"] = num_attn_heads
 
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
+    # batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
+    batch_size=512
+    temporal_width_past=4
+    temporal_width_future=4
 
     callbacks = [
         EarlyStopping(monitor="val_loss", patience=args.patience,
