@@ -64,22 +64,22 @@ from benchmark.trainer import train_one_model
 def sample_tide_gatide(trial: optuna.Trial, model_name: str) -> Dict[str, Any]:
     """TiDE/GATiDE shared space – Appendix B.3 + hidden_size divisibility for GATiDE."""
     # For GATiDE, hidden must be divisible by num_heads (4)
-    hidden_choices = [128, 256, 512, 1024]
+    hidden_choices = [128, 256, 512]
     hidden_size = trial.suggest_categorical("hidden_size", hidden_choices)
     # GATiDE validation done in model, but keep choices divisible
     return {
         "hidden_size": hidden_size,
         "num_encoder_layers": trial.suggest_int("num_encoder_layers", 1, 2),
         "num_decoder_layers": trial.suggest_int("num_decoder_layers", 1, 2),
-        "decoder_output_dim": trial.suggest_categorical("decoder_output_dim", [4, 8, 16, 32]),
+        "decoder_output_dim": trial.suggest_categorical("decoder_output_dim", [8, 16, 32]),
         "temporal_decoder_hidden": trial.suggest_categorical("temporal_decoder_hidden", [32, 64, 128]),
-        "dropout": trial.suggest_categorical("dropout", [0.1, 0.2, 0.3, 0.4, 0.5]),
+        "dropout": trial.suggest_categorical("dropout", [0.1, 0.2, 0.3]),
         "use_layer_norm": trial.suggest_categorical("use_layer_norm", [False, True]),
         # num_attn_heads fixed 4 for gatide to keep hidden divisible; tide ignores
         "num_attn_heads": 4,
         # learning rate – log scale, TiDE default 1e-3, we search around it
         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": 512,
+        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
     }
 
 def sample_dlinear(trial: optuna.Trial) -> Dict[str, Any]:
@@ -87,7 +87,7 @@ def sample_dlinear(trial: optuna.Trial) -> Dict[str, Any]:
         "kernel_size": trial.suggest_categorical("kernel_size", [25, 51, 75]),
         "individual": trial.suggest_categorical("individual", [False, True]),
         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": 512,
+        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
     }
 
 def sample_patchtst(trial: optuna.Trial) -> Dict[str, Any]:
@@ -106,14 +106,14 @@ def sample_patchtst(trial: optuna.Trial) -> Dict[str, Any]:
         "d_ff": trial.suggest_categorical("d_ff", [128, 256]),
         "dropout": trial.suggest_categorical("dropout", [0.1, 0.2]),
         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": 512,
+        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
     }
 
 def sample_naive(trial: optuna.Trial) -> Dict[str, Any]:
     return {
         "strategy": trial.suggest_categorical("strategy", ["last", "mean"]),
         "_lr": 1e-3,
-        "_batch_size": 512,
+        "_batch_size": 32,
     }
 
 
@@ -132,18 +132,27 @@ def run_one_trial(
     patience: int = 10,
     split_convention: str = "tide",
     device: str = "auto",
+    use_covariates: bool = False,
 ) -> float:
     """Train one trial and return val mse_norm (minimize)."""
     # Separate model kwargs from training overrides
     lr = params.pop("_lr", 1e-3)
-    batch_size = params.pop("_batch_size", 512)
+    batch_size = params.pop("_batch_size", 32)
 
     split = load_and_split(csv_dir, dataset, lookback=lookback, horizon=horizon,
-                           split_convention=split_convention, use_covariates=False)
-    train_loader, val_loader, test_loader = make_loaders(split, lookback, horizon, batch_size=batch_size)
+                           split_convention=split_convention, use_covariates=use_covariates)
+    train_loader, val_loader, test_loader = make_loaders(split, lookback, horizon, batch_size=batch_size,
+                                                         use_covariates=use_covariates)
+
+    # GATiDE: build with covariates when requested & available (GATiDE only –
+    # baselines stay covariate-free, matching the benchmark protocol)
+    n_cov = 0
+    if use_covariates and model_name in ("gatide", "ga-tide", "gatide-pure") and split.cov_train is not None:
+        n_cov = split.cov_train.shape[1]
 
     ModelCls = get_model(model_name)
-    model = ModelCls(num_features=split.n_features, lookback=lookback, horizon=horizon, **params)
+    model = ModelCls(num_features=split.n_features, lookback=lookback, horizon=horizon,
+                     num_time_covariates=n_cov, **params)
 
     out = train_one_model(
         model=model,
@@ -185,6 +194,9 @@ def main():
     p.add_argument("--n-epochs", type=int, default=100)
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--split-convention", type=str, default="tide", choices=["tide", "prior-work"])
+    p.add_argument("--use-covariates", action="store_true",
+                   help="Generate time covariates (TiDE §5.1) for GATiDE segment attention – "
+                        "matches run_benchmark.py protocol. GATiDE only; baselines stay covariate-free.")
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--seed", type=int, default=42, help="study seed")
     p.add_argument("--out-dir", type=str, default="./tuned_configs")
@@ -225,7 +237,7 @@ def main():
                 if model_name == "naive":
                     print(f"[skip] {dataset} H={horizon} {model_name} – no hyperparameters")
                     # Save dummy
-                    best = {"strategy": "last", "batch_size": 512}
+                    best = {"strategy": "last"}
                     out_path = os.path.join(args.out_dir, f"{dataset}_H{horizon}_{model_name}_best.json")
                     with open(out_path, "w") as f:
                         json.dump({"best_params": best, "best_value": None, "n_trials": 0}, f, indent=2)
@@ -233,6 +245,7 @@ def main():
 
                 study_name = f"{dataset}_H{horizon}_{model_name}"
                 storage = f"sqlite:///{os.path.join(args.out_dir, study_name + '_study.db')}"
+                # Remove old study.db if exists for fresh run? Keep for resume
                 sampler = TPESampler(seed=args.seed)
                 pruner = MedianPruner(n_warmup_steps=5)
                 study = optuna.create_study(
@@ -253,7 +266,8 @@ def main():
                         # Recover lr/batch
                         if "_lr" in study.best_params:
                             best_params["lr"] = study.best_params["_lr"]
-                        best_params["batch_size"] = study.best_params.get("_batch_size", 512)
+                        if "_batch_size" in study.best_params:
+                            best_params["batch_size"] = study.best_params["_batch_size"]
                         out_path = os.path.join(args.out_dir, f"{study_name}_best.json")
                         if not os.path.exists(out_path):
                             with open(out_path, "w") as f:
@@ -289,15 +303,16 @@ def main():
                             patience=args.patience,
                             split_convention=args.split_convention,
                             device=args.device,
+                            use_covariates=args.use_covariates,
                         )
                     except Exception as e:
                         print(f"  trial {trial.number} failed: {e}")
                         # Return large value to prune
                         return float("inf")
 
-                    # Report intermediate
+                    # Report intermediate (if we had epoch-wise values we could prune, but we only have final val)
                     trial.set_user_attr("lr", params.get("_lr", 1e-3))
-                    trial.set_user_attr("batch_size", params.get("_batch_size", 512))
+                    trial.set_user_attr("batch_size", params.get("_batch_size", 32))
                     return val_mse_norm
 
                 # Optimize remaining trials
@@ -311,7 +326,8 @@ def main():
                 best_params = {k: v for k, v in best_params_raw.items() if not k.startswith("_")}
                 if "_lr" in best_params_raw:
                     best_params["lr"] = best_params_raw["_lr"]
-                best_params["batch_size"] = best_params_raw.get("_batch_size", 512)
+                if "_batch_size" in best_params_raw:
+                    best_params["batch_size"] = best_params_raw["_batch_size"]
 
                 out_path = os.path.join(args.out_dir, f"{study_name}_best.json")
                 with open(out_path, "w") as f:

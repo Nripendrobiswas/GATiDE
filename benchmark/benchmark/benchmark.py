@@ -47,7 +47,7 @@ def run_benchmark(
     horizons: List[int] = [96, 192, 336, 720],
     models: List[str] = ["gatide", "tide", "dlinear", "patchtst", "naive"],
     lookback: int = 720,
-    batch_size: int = 512,
+    batch_size: int = 32,
     n_epochs: int = 100,
     lr: float = 1e-3,
     weight_decay: float = 1e-4,
@@ -127,8 +127,9 @@ def run_benchmark(
                         "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
                         "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
                         "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
-                        "epochs_run": 0, "n_params": 0, "batch_size": batch_size, "lr": lr,
-                        "split_convention": split_convention, "status": f"load_failed: {e}",
+                        "epochs_run": 0,                         "n_params": 0, "batch_size": batch_size, "lr": lr,
+                        "split_convention": split_convention, "use_covariates": use_covariates,
+                        "status": f"load_failed: {e}",
                     })
                 continue
 
@@ -140,7 +141,8 @@ def run_benchmark(
             try:
                 train_loader, val_loader, test_loader = make_loaders(
                     split, lookback=lookback, horizon=horizon,
-                    batch_size=batch_size, num_workers=0
+                    batch_size=batch_size, num_workers=0,
+                    use_covariates=use_covariates
                 )
             except ValueError as e:
                 print(f"[skip] {dataset} H={horizon} – window failed: {e}")
@@ -155,15 +157,19 @@ def run_benchmark(
                         "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
                         "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
                         "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
-                        "epochs_run": 0, "n_params": 0, "batch_size": batch_size, "lr": lr,
-                        "split_convention": split_convention, "status": f"window_failed: {e}",
+                        "epochs_run": 0,                         "n_params": 0, "batch_size": batch_size, "lr": lr,
+                        "split_convention": split_convention, "use_covariates": use_covariates,
+                        "status": f"window_failed: {e}",
                     })
                 continue
 
             if verbose:
                 print(f"  windows: train {len(train_loader.dataset)} | val {len(val_loader.dataset)} | test {len(test_loader.dataset)}")
                 if use_covariates and split.cov_train is not None:
-                    print(f"  covariates: train {split.cov_train.shape} (time-derived, TiDE §5.1) – GATiDE fusion active")
+                    print(f"  covariates: train {split.cov_train.shape} (time-derived, TiDE §5.1) – "
+                          f"GATiDE fusion active ({split.cov_train.shape[1]} cov features)")
+                elif use_covariates:
+                    print("  [warn] --use-covariates requested but no date column found – GATiDE will build without covariates")
 
             for model_name in models:
               for cur_seed in seeds_list:
@@ -185,6 +191,13 @@ def run_benchmark(
                         lookback=lookback,
                         horizon=horizon,
                     )
+                    # GATiDE: build with covariates when requested & available.
+                    # Baselines stay covariate-free (documented protocol asymmetry).
+                    if model_name in ("gatide", "ga-tide", "gatide-pure"):
+                        if use_covariates and split.cov_train is not None:
+                            kwargs["num_time_covariates"] = split.cov_train.shape[1]
+                        else:
+                            kwargs["num_time_covariates"] = 0
                     # Nested tuned config: {dataset: {horizon: {model: params}}}
                     cur_lr = lr
                     cur_batch = batch_size
@@ -220,15 +233,18 @@ def run_benchmark(
                         "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
                         "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
                         "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
-                        "epochs_run": 0, "n_params": 0, "batch_size": batch_size, "lr": lr,
-                        "split_convention": split_convention, "status": f"build_failed: {e}",
+                        "epochs_run": 0,                         "n_params": 0, "batch_size": batch_size, "lr": lr,
+                        "split_convention": split_convention, "use_covariates": use_covariates,
+                        "status": f"build_failed: {e}",
                     })
                     continue
 
                 # Train & evaluate – use cur_lr/cur_batch if tuned
                 cur_train_loader, cur_val_loader, cur_test_loader = train_loader, val_loader, test_loader
                 if cur_batch != batch_size:
-                    cur_train_loader, cur_val_loader, cur_test_loader = make_loaders(split, lookback, horizon, batch_size=cur_batch)
+                    cur_train_loader, cur_val_loader, cur_test_loader = make_loaders(
+                        split, lookback, horizon, batch_size=cur_batch,
+                        use_covariates=use_covariates)
                 t_start = time.time()
                 try:
                     out = train_one_model(
@@ -297,6 +313,7 @@ def run_benchmark(
                         "batch_size": cur_batch,
                         "lr": cur_lr,
                         "split_convention": split_convention,
+                        "use_covariates": use_covariates,
                         "status": status,
                     }
                     print(f"  -> MSE {out['test_mse']:.4f} (norm {out['test_mse_norm']:.4f}) | MAE {out['test_mae']:.4f} (norm {out['test_mae_norm']:.4f}) | "
@@ -310,8 +327,10 @@ def run_benchmark(
                         "mse": np.nan, "mae": np.nan, "mse_norm": np.nan, "mae_norm": np.nan,
                         "val_mse": np.nan, "val_mae": np.nan, "val_mse_norm": np.nan, "val_mae_norm": np.nan,
                         "train_time_per_epoch_s": np.nan, "peak_memory_mb": np.nan, "inference_ms_per_batch": np.nan,
-                        "epochs_run": 0, "n_params": n_params if 'n_params' in locals() else 0,
-                        "batch_size": batch_size, "lr": lr, "split_convention": split_convention, "status": status,
+                        "epochs_run": 0,                         "n_params": n_params if 'n_params' in locals() else 0,
+                        "batch_size": batch_size, "lr": lr,
+                        "split_convention": split_convention, "use_covariates": use_covariates,
+                        "status": status,
                     }
 
                 results.append(row)

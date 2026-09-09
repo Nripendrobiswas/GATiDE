@@ -146,11 +146,27 @@ class GATiDEPure(nn.Module):
     """
     Pure PyTorch GATiDE – standalone for benchmark's unified training loop.
 
-    Mirrors _GATideModule architecture but simplified for the covariate-free
-    case (input is only flattened lookback). If covariates were supplied,
-    segment_dims would be expanded and fusion enabled.
+    Faithful port of the original `_GATideModule` forward (src/ga_tide/model.py)
+    for the two configurations it supports:
 
-    Input:  (B, L, C)
+    - Covariate-free (num_time_covariates=0, the benchmark default):
+      single flattened-lookback segment -> segment_fusion is None (matching the
+      original's fallback), gated encoder/decoder stacks + lookback skip.
+
+    - With covariates (num_time_covariates=F > 0, e.g. --use-covariates):
+      covariates (T, F) are projected per-timestep by a GatedResidualBlock
+      (F -> temporal_width_future), flattened over input+output steps and fed as
+      a second attention token to SegmentAttentionFusion, and the last `horizon`
+      projected steps are concatenated into the temporal decoder input -- exactly
+      mirroring `model.py:future_cov_projection / segment_fusion /
+      temporal_decoder_input`. Segment dims become
+      [L*C, (L+H)*temporal_width_future], matching the original's
+      `(input_chunk_length + output_chunk_length) * temporal_width_future`.
+
+    forward signature: forward(x) or forward(x, cov) -- cov is (B, L+H, F).
+    Trainer dispatches cov only to models with `accepts_covariates=True`.
+
+    Input:  x (B, L, C), optional cov (B, L+H, F)
     Output: (B, H, C)
     """
 
@@ -166,6 +182,8 @@ class GATiDEPure(nn.Module):
         temporal_decoder_hidden: int = 32,
         temporal_width_past: int = 4,
         temporal_width_future: int = 4,
+        temporal_hidden_size_future: Optional[int] = None,
+        num_time_covariates: int = 0,
         dropout: float = 0.1,
         use_layer_norm: bool = False,
         num_attn_heads: int = 4,
@@ -177,19 +195,40 @@ class GATiDEPure(nn.Module):
         self.H = horizon
         self.hidden_size = hidden_size
         self.num_attn_heads = num_attn_heads
+        self.num_time_covariates = int(num_time_covariates)
+        self.temporal_width_future = int(temporal_width_future)
         if hidden_size % num_attn_heads != 0:
             raise ValueError(f"hidden_size {hidden_size} must be divisible by num_attn_heads {num_attn_heads}")
 
-        # Segment dims – in covariate-free benchmark only lookback segment exists
-        segment_dims = [lookback * num_features]
-        # If covariates were added, append here – e.g., past_cov_flat etc.
-        # For now single segment -> no fusion
-        if len(segment_dims) >= 2:
+        if self.num_time_covariates > 0:
+            # covariate projection: GatedResidualBlock per-timestep, as in the
+            # original _GATideModule (future_cov_projection)
+            self.cov_projection = GatedResidualBlock(
+                input_dim=self.num_time_covariates,
+                output_dim=self.temporal_width_future,
+                hidden_size=temporal_hidden_size_future or hidden_size,
+                dropout=dropout,
+                use_layer_norm=use_layer_norm,
+            )
+            # two segments: flattened lookback target + flattened projected
+            # covariates over (lookback + horizon) steps
+            segment_dims = [
+                lookback * num_features,
+                (lookback + horizon) * self.temporal_width_future,
+            ]
             self.segment_fusion = SegmentAttentionFusion(segment_dims, hidden_size, num_attn_heads, dropout)
             fused_dim = self.segment_fusion.output_dim
+            decoder_input_dim = decoder_output_dim + self.temporal_width_future
+            self.accepts_covariates = True
         else:
+            self.cov_projection = None
+            # Segment dims – in covariate-free benchmark only lookback segment exists
+            segment_dims = [lookback * num_features]
+            # single segment -> no fusion (matches original fallback)
             self.segment_fusion = None
             fused_dim = segment_dims[0]
+            decoder_input_dim = decoder_output_dim
+            self.accepts_covariates = False
 
         # Encoder stack: first block maps fused_dim -> hidden_size, rest hidden->hidden
         self.encoders = nn.Sequential(
@@ -206,30 +245,52 @@ class GATiDEPure(nn.Module):
                                              hidden_size, dropout, use_layer_norm))
         self.decoders = nn.Sequential(*dec_layers)
 
-        # Temporal decoder: decoder_output_dim -> C
+        # Temporal decoder: decoder_output_dim (+ projected future cov width when
+        # covariates are active) -> C, applied per timestep as in the original
         self.temporal_decoder = GatedResidualBlock(
-            decoder_output_dim, num_features,
+            decoder_input_dim, num_features,
             temporal_decoder_hidden, dropout, use_layer_norm
         )
+        self._temporal_decoder_cov = self.num_time_covariates > 0
         self.lookback_skip = nn.Linear(lookback, horizon)
+        self._warned_missing_cov = False
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cov: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         x: (B, L, C)
+        cov: (B, L+H, F) – required when built with num_time_covariates > 0
         returns: (B, H, C)
         """
         B, L, C = x.shape
-        segments = [x.reshape(B, -1)]  # single flattened segment
+
+        cov_proj = None
+        if self.cov_projection is not None:
+            if cov is None:
+                if not self._warned_missing_cov:
+                    print("[GATiDEPure] built with covariates but forward got cov=None "
+                          "-> zero-padding covariates for this run")
+                    self._warned_missing_cov = True
+                cov = torch.zeros(B, self.L + self.H, self.num_time_covariates,
+                                  device=x.device, dtype=x.dtype)
+            # project per-timestep: (B, L+H, F) -> (B, L+H, temporal_width_future)
+            cov_proj = self.cov_projection(cov)
+
         if self.segment_fusion is not None:
+            segments = [x.reshape(B, -1), cov_proj.reshape(B, -1)]
             fused = self.segment_fusion(segments)
         else:
-            fused = segments[0]
+            fused = x.reshape(B, -1)
         encoded = self.encoders(fused)  # (B, hidden)
         decoded = self.decoders(encoded)  # (B, H*decoder_output_dim)
         decoded = decoded.view(B, self.H, -1)  # (B, H, decoder_output_dim)
 
-        # Temporal decoder per step
-        td_in = decoded.reshape(B * self.H, -1)
+        if self._temporal_decoder_cov:
+            # last `horizon` projected cov steps feed the temporal decoder,
+            # exactly as _GATideModule.forward does
+            td_in = torch.cat([decoded, cov_proj[:, -self.H:, :]], dim=2)
+            td_in = td_in.reshape(B * self.H, -1)
+        else:
+            td_in = decoded.reshape(B * self.H, -1)
         td_out = self.temporal_decoder(td_in).view(B, self.H, self.C)
 
         # Skip: per-channel Linear(L -> H)

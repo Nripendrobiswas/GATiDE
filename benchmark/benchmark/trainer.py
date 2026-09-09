@@ -32,6 +32,20 @@ from tqdm import tqdm
 from benchmark.utils.metrics import mse, mae
 
 
+def _unpack_batch(batch) -> tuple:
+    """Return (x, y, cov|None) from a loader batch, which may be (x, y) or (x, y, cov)."""
+    if len(batch) == 3:
+        return batch[0], batch[1], batch[2]
+    return batch[0], batch[1], None
+
+
+def _forward(model: nn.Module, xb: torch.Tensor, covb: Optional[torch.Tensor]) -> torch.Tensor:
+    """Route covariates only to models that accept them (GATiDE with covariates)."""
+    if covb is not None and getattr(model, "accepts_covariates", False):
+        return model(xb, covb)
+    return model(xb)
+
+
 class EarlyStopping:
     def __init__(self, patience: int = 10, min_delta: float = 1e-4):
         self.patience = patience
@@ -172,13 +186,16 @@ def train_one_model(
         t0 = time.time()
         model.train()
         train_losses = []
-        for xb, yb in train_loader:
+        for batch in train_loader:
+            xb, yb, covb = _unpack_batch(batch)
             xb = xb.to(device)  # (B, L, C)
             yb = yb.to(device)  # (B, H, C)
+            if covb is not None:
+                covb = covb.to(device)  # (B, L+H, F)
             optimizer.zero_grad()
             if scaler_amp is not None:
                 with torch.cuda.amp.autocast():
-                    pred = model(xb)
+                    pred = _forward(model, xb, covb)
                     loss = criterion(pred, yb)
                 scaler_amp.scale(loss).backward()
                 if grad_clip:
@@ -187,7 +204,7 @@ def train_one_model(
                 scaler_amp.step(optimizer)
                 scaler_amp.update()
             else:
-                pred = model(xb)
+                pred = _forward(model, xb, covb)
                 loss = criterion(pred, yb)
                 loss.backward()
                 if grad_clip:
@@ -207,10 +224,13 @@ def train_one_model(
         model.eval()
         val_losses = []
         with torch.no_grad():
-            for xb, yb in val_loader:
+            for batch in val_loader:
+                xb, yb, covb = _unpack_batch(batch)
                 xb = xb.to(device)
                 yb = yb.to(device)
-                pred = model(xb)
+                if covb is not None:
+                    covb = covb.to(device)
+                pred = _forward(model, xb, covb)
                 loss = criterion(pred, yb)
                 val_losses.append(loss.item())
         val_loss = float(np.mean(val_losses)) if val_losses else float("inf")
@@ -295,23 +315,29 @@ def measure_inference_time(model: nn.Module, loader: DataLoader, device: torch.d
         device = torch.device(device)
     model.eval()
     # Warmup
-    for i, (xb, _) in enumerate(loader):
+    for i, batch in enumerate(loader):
         if i >= warmup:
             break
+        xb, _, covb = _unpack_batch(batch)
         xb = xb.to(device)
-        _ = model(xb)
+        if covb is not None:
+            covb = covb.to(device)
+        _ = _forward(model, xb, covb)
         if device.type == "cuda":
             torch.cuda.synchronize()
     # Timed
     times = []
-    for i, (xb, _) in enumerate(loader):
+    for i, batch in enumerate(loader):
         if i >= 10:
             break
+        xb, _, covb = _unpack_batch(batch)
         xb = xb.to(device)
+        if covb is not None:
+            covb = covb.to(device)
         if device.type == "cuda":
             torch.cuda.synchronize()
         t0 = time.time()
-        _ = model(xb)
+        _ = _forward(model, xb, covb)
         if device.type == "cuda":
             torch.cuda.synchronize()
         times.append((time.time() - t0) * 1000.0)
@@ -340,9 +366,12 @@ def evaluate(
     trues_inv_list = []
     preds_norm_list = []
     trues_norm_list = []
-    for xb, yb in loader:
+    for batch in loader:
+        xb, yb, covb = _unpack_batch(batch)
         xb = xb.to(device)
-        pred_scaled = model(xb)  # (B, H, C) scaled (normalized)
+        if covb is not None:
+            covb = covb.to(device)
+        pred_scaled = _forward(model, xb, covb)  # (B, H, C) scaled (normalized)
         pred_np = pred_scaled.detach().cpu().numpy()
         true_np = yb.numpy()  # already cpu, normalized
         preds_norm_list.append(pred_np)

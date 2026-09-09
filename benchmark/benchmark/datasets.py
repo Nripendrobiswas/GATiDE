@@ -77,9 +77,17 @@ class TimeSeriesWindowDataset(Dataset):
 
     Given a 2-D array data of shape (T, C) already scaled,
     yields (x, y) where x: (L, C), y: (H, C).
+
+    When an optional covariate array of shape (T, F) is supplied (must share the
+    same T and chronological index as `data`), __getitem__ returns a third tensor:
+    (x, y, cov) where cov: (L+H, F) covers exactly the window's input+target span
+    (same sliding index, so alignment is exact). Mirrors how the original Darts
+    GA-TiDE builds its future-covariate segment over input_chunk_length +
+    output_chunk_length steps.
     """
 
-    def __init__(self, data: np.ndarray, lookback: int, horizon: int):
+    def __init__(self, data: np.ndarray, lookback: int, horizon: int,
+                 cov_data: Optional[np.ndarray] = None):
         assert data.ndim == 2, f"data must be (T,C), got {data.shape}"
         self.data = data.astype(np.float32)
         self.L = lookback
@@ -90,14 +98,25 @@ class TimeSeriesWindowDataset(Dataset):
                 f"Series too short for L={lookback}, H={horizon}: T={len(data)}, "
                 f"need >= {lookback+horizon}, got {self.n_samples} samples"
             )
+        if cov_data is not None:
+            assert cov_data.ndim == 2, f"cov_data must be (T,F), got {cov_data.shape}"
+            assert cov_data.shape[0] == data.shape[0], (
+                f"cov_data rows ({cov_data.shape[0]}) must match data rows ({data.shape[0]})"
+            )
+            self.cov_data = cov_data.astype(np.float32)
+        else:
+            self.cov_data = None
 
     def __len__(self) -> int:
         return self.n_samples
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple:
         x = self.data[idx: idx + self.L]            # (L, C)
         y = self.data[idx + self.L: idx + self.L + self.H]  # (H, C)
-        return torch.from_numpy(x), torch.from_numpy(y)
+        if self.cov_data is None:
+            return torch.from_numpy(x), torch.from_numpy(y)
+        cov = self.cov_data[idx: idx + self.L + self.H]     # (L+H, F)
+        return torch.from_numpy(x), torch.from_numpy(y), torch.from_numpy(cov)
 
 
 # TiDE-paper dataset registry for split convention handling
@@ -301,11 +320,22 @@ def make_loaders(
     batch_size: int = 32,
     num_workers: int = 0,
     shuffle_train: bool = True,
+    use_covariates: bool = False,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    """Create DataLoaders from SplitData."""
-    train_ds = TimeSeriesWindowDataset(split.train_data_scaled, lookback, horizon)
-    val_ds = TimeSeriesWindowDataset(split.val_data_scaled, lookback, horizon)
-    test_ds = TimeSeriesWindowDataset(split.test_data_scaled, lookback, horizon)
+    """Create DataLoaders from SplitData.
+
+    When use_covariates is True and the split carries time covariates, loaders
+    yield (x, y, cov) triples; otherwise (x, y) as before.
+    """
+    def _cov(cov: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        return cov if (use_covariates and cov is not None) else None
+
+    train_ds = TimeSeriesWindowDataset(split.train_data_scaled, lookback, horizon,
+                                       cov_data=_cov(split.cov_train))
+    val_ds = TimeSeriesWindowDataset(split.val_data_scaled, lookback, horizon,
+                                     cov_data=_cov(split.cov_val))
+    test_ds = TimeSeriesWindowDataset(split.test_data_scaled, lookback, horizon,
+                                      cov_data=_cov(split.cov_test))
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=shuffle_train,
                               num_workers=num_workers, drop_last=False)
