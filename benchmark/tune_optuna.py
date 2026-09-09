@@ -61,8 +61,11 @@ from benchmark.trainer import train_one_model
 # Search spaces – per-model, equal-budget friendly
 # ---------------------------------------------------------------------------
 
-def sample_tide_gatide(trial: optuna.Trial, model_name: str) -> Dict[str, Any]:
+def sample_tide_gatide(trial: optuna.Trial, model_name: str,
+                       batch_choices: Optional[list] = None) -> Dict[str, Any]:
     """TiDE/GATiDE shared space – Appendix B.3 + hidden_size divisibility for GATiDE."""
+    if batch_choices is None:
+        batch_choices = [32, 64]
     # For GATiDE, hidden must be divisible by num_heads (4)
     hidden_choices = [128, 256, 512]
     hidden_size = trial.suggest_categorical("hidden_size", hidden_choices)
@@ -79,7 +82,7 @@ def sample_tide_gatide(trial: optuna.Trial, model_name: str) -> Dict[str, Any]:
         "num_attn_heads": 4,
         # learning rate – log scale, TiDE default 1e-3, we search around it
         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+        "_batch_size": trial.suggest_categorical("batch_size", batch_choices),
     }
 
 def sample_dlinear(trial: optuna.Trial) -> Dict[str, Any]:
@@ -197,6 +200,9 @@ def main():
     p.add_argument("--use-covariates", action="store_true",
                    help="Generate time covariates (TiDE §5.1) for GATiDE segment attention – "
                         "matches run_benchmark.py protocol. GATiDE only; baselines stay covariate-free.")
+    p.add_argument("--batch-sizes", type=int, nargs="+", default=[32, 64],
+                   help="Batch size choices searched by gatide/tide, e.g. --batch-sizes 32 64 512. "
+                        "dlinear/patchtst/naive keep their fixed spaces.")
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--seed", type=int, default=42, help="study seed")
     p.add_argument("--out-dir", type=str, default="./tuned_configs")
@@ -210,6 +216,14 @@ def main():
         # support comma-separated
         horizons = [int(h) for h in args.horizon.replace(",", " ").split()]
     models = MODELS_ALL if args.model == "all" else [m.strip() for m in args.model.split(",") if m.strip()]
+
+    # Validate batch size choices (gatide/tide search space)
+    batch_choices = sorted(set(int(b) for b in args.batch_sizes))
+    if not batch_choices or min(batch_choices) < 1:
+        print(f"[error] invalid --batch-sizes: {args.batch_sizes} (need positive ints)")
+        return
+    if any(m in ("gatide", "ga-tide", "tide") for m in models):
+        print(f"[tune] gatide/tide batch size choices: {batch_choices}")
 
     # Validate csv_dir
     if not os.path.isdir(args.csv_dir):
@@ -278,7 +292,7 @@ def main():
 
                 def objective(trial: optuna.Trial) -> float:
                     if model_name in ("gatide", "ga-tide", "tide"):
-                        params = sample_tide_gatide(trial, model_name)
+                        params = sample_tide_gatide(trial, model_name, batch_choices=batch_choices)
                     elif model_name == "dlinear":
                         params = sample_dlinear(trial)
                     elif model_name == "patchtst":
