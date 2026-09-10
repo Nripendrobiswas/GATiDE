@@ -7,17 +7,17 @@ Equal-budget tuning per model/dataset/horizon on validation mse_norm (TiDE paper
 test mean over 5 seeds). Requirement configs remain via configs/default.yaml.
 
 Usage:
-  pip install optuna
+  !pip install optuna
 
   # single setting – 50 trials (GATiDE vs TiDE equal budget)
-  python tune_optuna.py --dataset ETTh1 --horizon 96 --model tide --n-trials 50 --epochs 100
-  python tune_optuna.py --dataset ETTh1 --horizon 96 --model gatide --n-trials 50 --epochs 100
+  !python tune_optuna.py --dataset ETTh1 --horizon 96 --model tide --n-trials 50 --epochs 100
+  !python tune_optuna.py --dataset ETTh1 --horizon 96 --model gatide --n-trials 50 --epochs 100
 
   # sweep all horizons for a dataset
   for H in 96 192 336 720; do python tune_optuna.py --dataset ETTh1 --horizon $H --model all --n-trials 50; done
 
   # full matrix (7 datasets × 4 horizons × 3 models × 50 trials) – use GPU
-  python tune_optuna.py --dataset all --horizon all --model all --n-trials 50 --device cuda
+  !python tune_optuna.py --dataset all --horizon all --model all --n-trials 50 --device cuda
 
 Outputs:
   tuned_configs/{dataset}_H{horizon}_{model}_best.json  – best params
@@ -66,9 +66,11 @@ def sample_tide_gatide(trial: optuna.Trial, model_name: str,
     """TiDE/GATiDE shared space – Appendix B.3 + hidden_size divisibility for GATiDE."""
     if batch_choices is None:
         batch_choices = [32, 64]
+      
     # For GATiDE, hidden must be divisible by num_heads (4)
     hidden_choices = [128, 256, 512]
     hidden_size = trial.suggest_categorical("hidden_size", hidden_choices)
+                         
     # GATiDE validation done in model, but keep choices divisible
     return {
         "hidden_size": hidden_size,
@@ -197,12 +199,8 @@ def main():
     p.add_argument("--n-epochs", type=int, default=100)
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--split-convention", type=str, default="tide", choices=["tide", "prior-work"])
-    p.add_argument("--use-covariates", action="store_true",
-                   help="Generate time covariates (TiDE §5.1) for GATiDE segment attention – "
-                        "matches run_benchmark.py protocol. GATiDE only; baselines stay covariate-free.")
-    p.add_argument("--batch-sizes", type=int, nargs="+", default=[32, 64],
-                   help="Batch size choices searched by gatide/tide, e.g. --batch-sizes 32 64 512. "
-                        "dlinear/patchtst/naive keep their fixed spaces.")
+    p.add_argument("--use-covariates", action="store_true", help="Generate time covariates (TiDE §5.1) for GATiDE segment attention – " "matches run_benchmark.py protocol. GATiDE only; baselines stay covariate-free.")
+    p.add_argument("--batch-sizes", type=int, nargs="+", default=[32, 64], help="Batch size choices searched by gatide/tide, e.g. --batch-sizes 32 64 512. " "dlinear/patchtst/naive keep their fixed spaces.")
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--seed", type=int, default=42, help="study seed")
     p.add_argument("--out-dir", type=str, default="./tuned_configs")
