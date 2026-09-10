@@ -1,0 +1,16 @@
+# Production benchmark requirements
+# Tested with torch 2.4.1+cpu, darts 0.46.1, pytorch-lightning 2.4.0
+# NOTE: darts must be >= 0.36.0 for `darts.utils.data.torch_datasets` (imported by
+# src/ga_tide/model.py). The old `darts>=0.30.0` pin silently broke the Darts path
+# (gatide_adapter fell back to the pure reimplementation).
+torch>=2.0.0
+numpy>=1.24,<3.0
+pandas>=2.0
+scikit-learn>=1.3
+pytorch-lightning>=2.0
+darts==0.46.1
+tabulate>=0.9
+pyyaml>=6.0
+tqdm>=4.66
+matplotlib>=3.8
+optuna>=3.6  # for ICLR tuning (tune_optuna.py)
