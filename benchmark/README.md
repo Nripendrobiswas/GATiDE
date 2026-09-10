@@ -36,11 +36,8 @@ export PYTHONPATH="E:/Machine Learning Research/GATiDE Final Verse/GATiDE/src:$P
 [![Pandas](https://img.shields.io/badge/Pandas-%E2%89%A52.0-150458?logo=pandas&logoColor=white)](https://pandas.pydata.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-%E2%89%A51.3-F7931E?logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
 
-### 🔌 Optional Dependencies
 
-> **Note:** The core GATiDE PyTorch model can be used standalone. The following packages are only required if running the Darts-based pipeline or original benchmark scripts:
-[![Darts](https://img.shields.io/badge/Darts-0.46.1_(Optional)-4B8BBE)](https://unit8co.github.io/darts/)
-[![Lightning](https://img.shields.io/badge/Lightning-%E2%89%A52.0_(Optional)-792EE5?logo=pytorchlightning&logoColor=white)](https://lightning.ai/)
+> **Note:** The core GATiDE PyTorch model can be used standalone. The following packages are only required if running the Darts-based pipeline or original benchmark scripts: `darts`, `pytorch-lightning`
 
 ---
 
