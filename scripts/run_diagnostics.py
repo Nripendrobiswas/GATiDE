@@ -3,24 +3,32 @@
 Consolidates the verification and measurement experiments the paper reports.
 Each flag maps to one artefact:
 
-    --layout      segment-width and channel-layout verification (Section 4.4)
-    --layernorm   unit-width LayerNorm gradient diagnostic (Section 4.3)
-    --precision   float32 vs float64, deciding whether the residual gradient
-                  is numerical or analytic (Section 4.3)
-    --params      parameter counts, TiDE vs GA-TiDE (Section 5)
-    --all         all of the above
+    --layout       segment-width and channel-layout verification (Section 4.4)
+    --layernorm    unit-width LayerNorm gradient diagnostic (Section 4.3)
+    --precision    float32 vs float64, deciding whether the residual gradient
+                   is numerical or analytic (Section 4.3)
+    --params       parameter counts, TiDE vs GA-TiDE (Section 5)
+    --params-pure  parameter counts for the four ABLATION_STUDY pure variants
+                   (tide / gatide-gate / gatide-attn / gatide), which separate
+                   the gating-only and attention-only parameter costs that the
+                   two-arm Darts comparison cannot isolate
+    --all          all of the Darts diagnostics (--params-pure is opt-in
+                   because it reads the sibling benchmark repository)
 
+Requires darts >= 0.36 (torch_datasets API used by src/ga_tide/model.py).
 Everything runs on CPU on a small synthetic series in about a minute. No
 dataset download, no network access. Results are written to `results/` as CSV.
 
     python scripts/run_diagnostics.py --all
     python scripts/run_diagnostics.py --params --lookback 720 --hidden-size 256
+    python scripts/run_diagnostics.py --params --params-pure --prod
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import sys
 import warnings
 
 import numpy as np
@@ -28,6 +36,11 @@ import pandas as pd
 import torch
 
 warnings.filterwarnings("ignore")
+
+# make `ga_tide` importable without pip-installing the repo (uses sibling src/)
+_SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+if os.path.isdir(_SRC) and _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 
 from darts import TimeSeries
 from darts.models import TiDEModel
@@ -45,12 +58,21 @@ TRAINER = {
     "limit_train_batches": 2,
 }
 
-# GATiDEModel applies gating and fusion together with no switch to isolate
-# either, so the parameter comparison is between two models.
+# The Darts GA-TiDEModel applies gating and fusion together with no switch to
+# isolate either, so the Darts parameter comparison is between two models.
+# The gated-without-fusion / fusion-without-gate variants live in the sibling
+# benchmark repository's ablation study -- use --params-pure to separate the
+# gating-only and attention-only parameter costs.
 MODELS = {
     "TiDE (baseline)": TiDEModel,
     "GA-TiDE":         GATiDEModel,
 }
+
+# sibling benchmark repository (for --params-pure); override with --benchmark-root
+DEFAULT_BENCHMARK_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "ablation", "git-repo-benchmark", "benchmark",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -448,6 +470,80 @@ def run_params(lookback: int, horizon: int, hidden: int) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- #
+# --params-pure
+# --------------------------------------------------------------------------- #
+def run_params_pure(lookback: int, horizon: int, hidden: int,
+                    benchmark_root: str) -> pd.DataFrame:
+    """Parameter counts for the four ablation-study pure variants.
+
+    Unlike the two-arm Darts comparison above, this separates the parameter
+    cost of gating (gatide-gate - tide) from the cost of segment attention
+    (gatide-attn - tide). Counted in the covariate-free configuration
+    (num_time_covariates=0); the Darts arm includes past+future covariates,
+    so compare deltas, not absolute totals, across the two tables.
+    """
+    banner("PARAMS (PURE) -- gating-only vs attention-only parameter cost")
+
+    if not os.path.isdir(benchmark_root):
+        raise FileNotFoundError(
+            f"benchmark root not found: {benchmark_root} "
+            f"(pass --benchmark-root to point at the benchmark repository)")
+
+    if benchmark_root not in sys.path:
+        sys.path.insert(0, benchmark_root)
+    try:
+        from ABLATION_STUDY.variants import (register_ablation_variants,
+                                             ABLATION_ORDER)
+        from benchmark.models import get_model
+        from benchmark.models.gatide_adapter import GatedResidualBlock as PureGatedBlock
+
+        register_ablation_variants()
+        rows = []
+        for name in ABLATION_ORDER:
+            m = get_model(name)(
+                num_features=1, lookback=lookback, horizon=horizon,
+                hidden_size=hidden, num_encoder_layers=1, num_decoder_layers=1,
+                decoder_output_dim=16, temporal_decoder_hidden=32,
+                dropout=0.0, use_layer_norm=False, num_time_covariates=0,
+            )
+            total = sum(p.numel() for p in m.parameters() if p.requires_grad)
+            fusion = getattr(m, "segment_fusion", None)
+            n_fusion = sum(p.numel() for p in fusion.parameters()) if fusion else 0
+            # count with the benchmark's own class object -- the ga_tide
+            # GatedResidualBlock imported above is a different class despite
+            # the identical name
+            rows.append({"variant": name, "params": total,
+                         "fusion_params": n_fusion,
+                         "gated_blocks": sum(isinstance(b, PureGatedBlock)
+                                             for b in m.modules())})
+    finally:
+        if benchmark_root in sys.path:
+            sys.path.remove(benchmark_root)
+
+    df = pd.DataFrame(rows)
+    base = int(df.loc[df["variant"] == "tide", "params"].iloc[0])
+    df["delta_vs_tide"] = df["params"] - base
+    df["delta_pct"] = ((df["params"] / base - 1) * 100).round(1)
+    df["lookback"] = lookback
+    df["horizon"] = horizon
+    df["hidden_size"] = hidden
+
+    print(f"\n  L={lookback}, H={horizon}, hidden_size={hidden}, "
+          f"univariate target, no covariates\n")
+    print(df.to_string(index=False))
+    gate_only = int(df.loc[df["variant"] == "gatide-gate", "delta_vs_tide"].iloc[0])
+    attn_only = int(df.loc[df["variant"] == "gatide-attn", "delta_vs_tide"].iloc[0])
+    print(f"\n  gating-only parameter cost   (gatide-gate - tide) : {gate_only:+,}")
+    print(f"  attention-only parameter cost (gatide-attn - tide): {attn_only:+,}")
+    print("\n  Note: the full model (gatide) is NOT the sum of the two effects:\n"
+          "  attention narrows the encoder's first-layer input, so the interaction\n"
+          "  term matters. Quote the four rows, not a naive sum.")
+
+    save(df, "parameters_pure.csv")
+    return df
+
+
+# --------------------------------------------------------------------------- #
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -455,17 +551,38 @@ def main() -> None:
     p.add_argument("--layernorm", action="store_true")
     p.add_argument("--precision", action="store_true")
     p.add_argument("--params", action="store_true")
-    p.add_argument("--all", action="store_true")
-    p.add_argument("--lookback", type=int, default=48)
-    p.add_argument("--horizon", type=int, default=12)
-    p.add_argument("--hidden-size", type=int, default=32)
+    p.add_argument("--params-pure", action="store_true",
+                   help="parameter counts for the four ablation-study pure variants "
+                        "(requires --benchmark-root to resolve; default path is the "
+                        "sibling benchmark repository)")
+    p.add_argument("--all", action="store_true",
+                   help="all Darts diagnostics (--params-pure is opt-in)")
+    p.add_argument("--prod", action="store_true",
+                   help="production configuration preset: L=720, H=96, hidden=256")
+    p.add_argument("--lookback", type=int, default=None)
+    p.add_argument("--horizon", type=int, default=None)
+    p.add_argument("--hidden-size", type=int, default=None)
+    p.add_argument("--benchmark-root", type=str, default=DEFAULT_BENCHMARK_ROOT,
+                   help="path to the benchmark repository (contains benchmark/ and "
+                        "ABLATION_STUDY/) used by --params-pure")
     args = p.parse_args()
 
-    if not any([args.layout, args.layernorm, args.precision, args.params, args.all]):
-        p.error("choose at least one of --layout --layernorm --precision --params --all")
+    # production preset; explicit flags still override
+    if args.prod:
+        lookback, horizon, hidden = 720, 96, 256
+    else:
+        lookback, horizon, hidden = 48, 12, 32
+    lookback = args.lookback if args.lookback is not None else lookback
+    horizon = args.horizon if args.horizon is not None else horizon
+    hidden = args.hidden_size if args.hidden_size is not None else hidden
+
+    if not any([args.layout, args.layernorm, args.precision, args.params,
+                args.params_pure, args.all]):
+        p.error("choose at least one of --layout --layernorm --precision --params "
+                "--params-pure --all")
 
     report_env()
-    L, H, W = args.lookback, args.horizon, args.hidden_size
+    L, H, W = lookback, horizon, hidden
 
     if args.all or args.layout:
         run_layout(L, H, W)
@@ -475,6 +592,8 @@ def main() -> None:
         run_precision(L, H, W)
     if args.all or args.params:
         run_params(L, H, W)
+    if args.params_pure:
+        run_params_pure(L, H, W, args.benchmark_root)
 
 
 if __name__ == "__main__":
