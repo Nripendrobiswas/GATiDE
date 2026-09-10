@@ -62,9 +62,7 @@ class GatedResidualBlock(nn.Module):
         self.skip = nn.Linear(input_dim, output_dim)
         self.act = nn.ReLU()
 
-        # see module docstring point (1): LayerNorm(1) is degenerate and
-        # would zero out all upstream gradient, so only enable it when
-        # output_dim > 1, regardless of what the caller asked for.
+        # see module docstring point (1): LayerNorm(1) is degenerate and would zero out all upstream gradient, so only enable it when output_dim > 1, regardless of what the caller asked for.
         self.layer_norm = (
             nn.LayerNorm(output_dim) if (use_layer_norm and output_dim > 1)
             else None
