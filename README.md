@@ -5,6 +5,10 @@
 # GATiDE: Gated-Attention Time-Series Dense Encoder
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE)
+![Darts](https://img.shields.io/badge/darts-0.46.1-4B8BBE?style=for-the-badge)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.10.0%2Bcu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
+![PyTorch Lightning](https://img.shields.io/badge/Lightning-2.6.5-792EE5?style=for-the-badge&logo=pytorchlightning&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-2.0.2-013243?style=for-the-badge&logo=numpy&logoColor=white)
 
 Reference implementation and benchmark code for *[paper title]*.
 
