@@ -3,12 +3,14 @@
 </p>
 
 # GATiDE: Gated-Attention Time-Series Dense Encoder
-
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE)
-![Darts](https://img.shields.io/badge/darts-0.46.1-4B8BBE)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.10.0%2Bcu128-EE4C2C?logo=pytorch&logoColor=white)
-![PyTorch Lightning](https://img.shields.io/badge/Lightning-2.6.5-792EE5?logo=pytorchlightning&logoColor=white)
-![NumPy](https://img.shields.io/badge/NumPy-2.0.2-013243?logo=numpy&logoColor=white)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![Darts Framework](https://img.shields.io/badge/darts-0.46.1-4B8BBE)](https://unit8co.github.io/darts/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.10.0%2Bcu128-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![PyTorch Lightning](https://img.shields.io/badge/Lightning-2.6.5-792EE5?logo=pytorchlightning&logoColor=white)](https://lightning.ai/)
+[![NumPy](https://img.shields.io/badge/NumPy-2.0.2-013243?logo=numpy&logoColor=white)](https://numpy.org/)
+[![Paper / Preprint](https://img.shields.io/badge/Paper-PDF-red.svg?logo=adobeacrobatreader&logoColor=white)](#)
+[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 Reference implementation and benchmark code for *[paper title]*.
 
