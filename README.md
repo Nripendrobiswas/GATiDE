@@ -176,9 +176,12 @@ check alone cannot detect a reordering when the past and future covariate
 groups have the same number of features. It fails loudly if a Darts upgrade
 changes either.
 
-## Environment used for the reported results
+## ⚙️ Execution Environment
 
-darts 0.46.1 · torch 2.10.0+cu128 · pytorch-lightning 2.6.5 · numpy 2.0.2
+![Darts](https://img.shields.io/badge/darts-0.46.1-4B8BBE?style=for-the-badge)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.10.0%2Bcu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
+![PyTorch Lightning](https://img.shields.io/badge/Lightning-2.6.5-792EE5?style=for-the-badge&logo=pytorchlightning&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-2.0.2-013243?style=for-the-badge&logo=numpy&logoColor=white)
 
 ## Work with any Dataset 
 ```bash
