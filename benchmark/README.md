@@ -25,7 +25,15 @@ pip install -e "E:/Machine Learning Research/GATiDE Final Verse/GATiDE"
 export PYTHONPATH="E:/Machine Learning Research/GATiDE Final Verse/GATiDE/src:$PYTHONPATH"
 ```
 
-Required: `torch`, `pandas`, `scikit-learn`, `pyyaml`, `tabulate`, `tqdm`.  
+Required:[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Darts](https://img.shields.io/badge/Darts-0.46.1-4B8BBE)](https://unit8co.github.io/darts/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-%E2%89%A52.0.0-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Lightning](https://img.shields.io/badge/Lightning-%E2%89%A52.0-792EE5?logo=pytorchlightning&logoColor=white)](https://lightning.ai/)
+[![Optuna](https://img.shields.io/badge/Optuna-%E2%89%A53.6-blue)](https://optuna.org/)
+[![NumPy](https://img.shields.io/badge/NumPy-%E2%89%A51.24-013243?logo=numpy&logoColor=white)](https://numpy.org/)
+[![Pandas](https://img.shields.io/badge/Pandas-%E2%89%A52.0-150458?logo=pandas&logoColor=white)](https://pandas.pydata.org/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-%E2%89%A51.3-F7931E?logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
 Optional: `darts`, `pytorch-lightning` (only for the Darts-based GATiDE wrapper / original scripts).
 
 ---
