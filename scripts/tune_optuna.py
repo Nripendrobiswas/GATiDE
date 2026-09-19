@@ -74,7 +74,8 @@ def objective(trial: optuna.Trial, args, data) -> float:
     cls = MODELS[args.model]
 
     # --- architecture -------------------------------------------------------
-    num_attn_heads = trial.suggest_categorical("num_attn_heads", [2, 4, 8])
+    # num_attn_heads = trial.suggest_categorical("num_attn_heads", [2, 4, 8])
+    num_attn_heads = 4
     # Sample hidden_size as a MULTIPLE of the head count so that every point in
     # the search space is constructible. Sampling the two independently would
     # discard roughly half the trials.
