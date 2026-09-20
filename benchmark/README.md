@@ -230,17 +230,6 @@ print(df.groupby(["model","horizon"])[["mse","mae"]].mean())
 
 ---
 
-## Extending
-
-Add a new baseline:
-
-1. Create `benchmark/models/my_model.py` with `class MyModel(nn.Module): def __init__(self, num_features, lookback, horizon, ...) / def forward(self, x): -> (B,H,C)`
-2. Register in `benchmark/models/__init__.py:MODEL_REGISTRY["my_model"] = MyModel`
-3. Run with `--models my_model`
-
-Hyperparameter search: integrate Optuna by wrapping `run_benchmark` or use `scripts/tune_optuna.py` in the sibling repo (per-model equal trial budget).
-
----
 
 ## Citation
 
