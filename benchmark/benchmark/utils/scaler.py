@@ -7,11 +7,10 @@ from sklearn.preprocessing import StandardScaler as SkStandardScaler
 
 
 class StandardScaler:
-    """Thin wrapper over sklearn StandardScaler with inverse support. Fitted only on train data. Handles (T, C) arrays."""
     def __init__(self):
         self.scaler = SkStandardScaler()
         self._fitted = False
-      
+
     def fit(self, data: np.ndarray) -> "StandardScaler":
         """Fit on 2-D array (T, C)."""
         assert data.ndim == 2, f"expected (T, C), got {data.shape}"
