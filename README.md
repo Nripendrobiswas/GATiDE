@@ -14,7 +14,7 @@
 
 Reference implementation and benchmark code for *[paper title]*.
 
-## Introduction
+## 1.1 Introduction
 <p align="center">
   <img src="GATiDE_Model.png" alt="GATiDE Logo" width="500"/><br>
   Figure: The Architecture of GATiDE Model.
@@ -38,7 +38,7 @@ It is implemented as a drop-in subclass of the Darts `TiDEModel`: `fit`,
 
 ---
 
-## Installation
+## 1.2 Installation
 
 **Working in the kaggle**
 ```bash
@@ -49,15 +49,15 @@ It is implemented as a drop-in subclass of the Darts `TiDEModel`: `fit`,
 
 The `darts` version is pinned deliberately - GATiDE subclasses private Darts
 internals. See `requirements.txt`.
-
-## Model Import
+---
+## 1.3 Model Import
 ```python
 import sys
 sys.path.insert(0, "GATiDE/src")
 from ga_tide import GATiDEModel
 ```
-
-## Quick start
+---
+## 1.4 Quick start
 
 ```python
 from ga_tide import GATiDEModel
@@ -92,8 +92,8 @@ comparison is between two models:
 
 A difference in accuracy is consequently not attributable to any single one of them. Isolating them would require constructor switches for the block type and
 the fusion mode, which this implementation does not expose. Report the comparison as between two models, not as an ablation.
-
-## Reproducing the paper
+---
+## 1.5 Reproducing the paper
 **Diagnostics**
 ```bash
 # 0. Verify the environment and produce the diagnostic tables (~1 min, CPU).
