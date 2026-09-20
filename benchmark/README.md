@@ -1,4 +1,4 @@
-# GATiDE Benchmark – Forecasting Evaluation
+# GATiDE: Gated-Attention Time series Dense Encoder Benchmark Test for Forecasting Evaluation
 
 [![TiDE](https://img.shields.io/badge/Model-TiDE-orange)](https://arxiv.org/abs/2304.08424)
 [![GATiDE](https://img.shields.io/badge/Model-GATiDE-blueviolet)](https://github.com/)
