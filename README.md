@@ -81,21 +81,17 @@ comparison is between two models:
 | `tide` | `darts.models.TiDEModel` | `_ResidualBlock` | concatenation |
 | `ga-tide` | `ga_tide.GATiDEModel` | `GatedResidualBlock` | segment attention |
 
+---
 ### Known limitation of this comparison
 
-`tide` and `ga-tide` differ in **three** respects simultaneously:
+`TIDEModel` and `GATiDEModel` differ in **three** respects simultaneously:
 
-1. the sigmoid gate on the nonlinear branch;
-2. segment-attention fusion, which also narrows the encoder's first-layer input
-   from the concatenated segment width to `n_segments × hidden_size`;
-3. the dropout position inside the residual block — `GatedResidualBlock` applies
-   dropout to the hidden activation, whereas `_ResidualBlock` applies it after
-   the second linear map.
+1. The `sigmoid gate` on the nonlinear branch;
+2. `Segment-Attention Fusion`, which also narrows the encoder's first-layer input from the concatenated segment width to `n_segments × hidden_size`;
+3. The dropout position inside the residual block — `GatedResidualBlock` applies dropout to the hidden activation, whereas `_ResidualBlock` applies it after the second linear map.
 
-A difference in accuracy is consequently not attributable to any single one of
-them. Isolating them would require constructor switches for the block type and
-the fusion mode, which this implementation does not expose. Report the
-comparison as between two models, not as an ablation.
+A difference in accuracy is consequently not attributable to any single one of them. Isolating them would require constructor switches for the block type and
+the fusion mode, which this implementation does not expose. Report the comparison as between two models, not as an ablation.
 
 ## Reproducing the paper
 **Diagnostics**
