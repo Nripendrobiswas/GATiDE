@@ -1,5 +1,8 @@
 # GATiDE Benchmark – Forecasting Evaluation
 
+[![TiDE](https://img.shields.io/badge/Model-TiDE-orange)](https://arxiv.org/abs/2304.08424)
+[![GATiDE](https://img.shields.io/badge/Model-GATiDE-blueviolet)](https://github.com/)
+
 > Modular PyTorch benchmark for evaluating **Gated-Attention Time series Dense Encoder** (`src/ga_tide/model.py`) against standard baselines
 **TiDE, PatchTST** on the LTSF datasets available in `data/` (ETTh1, ETTh2, ETTm1, ETTm2, Electricity, Weather, Traffic).
 ---
