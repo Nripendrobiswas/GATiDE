@@ -2,39 +2,23 @@
 GA-TiDE wired into Darts
 =========================
 
-Drop-in subclass of Darts' `TiDEModel` / `_TideModule`. Two changes vs.
-vanilla TiDE, both informed by reading Darts' actual source
+Drop-in subclass of Darts' `TiDEModel` / `_TideModule`. Two changes vs. vanilla TiDE, both informed by reading Darts' actual source
 (darts/models/forecasting/tide_model.py):
 
-1. `_ResidualBlock` -> `GatedResidualBlock`: every residual MLP block
-   becomes a gated (GRN-style) block. Also fixes a latent bug present in
-   Darts' own `_ResidualBlock` when `use_layer_norm=True` and an
-   `output_dim == 1` block is used (e.g. `temporal_decoder` when
-   `output_dim * nr_params == 1`): `nn.LayerNorm(1)` normalizes any input
-   to exactly 0, silently killing all upstream gradient. We only apply
-   LayerNorm when output_dim > 1. (Darts defaults `use_layer_norm=False`,
-   so this doesn't bite by default -- but it will the moment someone
-   turns layer norm on with a univariate target, which is exactly our
-   electricity-load setup.)
+1. `_ResidualBlock` -> `GatedResidualBlock`: every residual MLP block becomes a gated block. Also fixes a latent bug present in Darts' own `_ResidualBlock` when
+   `use_layer_norm=True` and an `output_dim == 1` block is used (e.g. `temporal_decoder` when `output_dim * nr_params == 1`): `nn.LayerNorm(1)` normalizes any input to exactly 0, 
+   silently killing all upstream gradient. 
+   We only apply LayerNorm when output_dim > 1. (Darts defaults `use_layer_norm=False`, so this doesn't bite by default -- but it will the moment someone turns layer norm on with
+   a univariate target, which is exactly our electricity-load setup.)
 
-2. Segment-attention fusion at the encoder's input. Darts' encoder input
-   is NOT a sequence -- x_lookback, past-covariate features, future
-   covariate features, and static covariates are each flattened to a
-   vector and concatenated (`torch.cat` of flattened segments) before
-   the residual stack ever sees them. There is no timestep axis left at
-   that point, so a per-timestep attention layer (my first draft) does
-   not apply here. Instead we project each present segment to a common
-   `hidden_size`, treat them as a handful of tokens, and run one
-   self-attention layer across segments before flattening back down into
-   the same residual stack Darts already uses. This lets e.g. the
-   future-covariate segment (temperature/humidity/holiday) attend to the
-   lookback-target segment before the encoder compresses everything,
-   instead of the model only ever seeing them pre-mixed by concatenation.
+2. Segment-attention fusion at the encoder's input: Darts' encoder input is NOT a sequence -- x_lookback, past-covariate features, future covariate features, and static covariates
+   are each flattened to a vector and concatenated before the residual stack ever sees them. 
+   Instead we project each present segment to a common `hidden_size`, treat them as a handful of tokens, and run one self-attention layer across segments before flattening back down into
+   the same residual stack Darts already uses. This lets e.g. the future-covariate segment (temperature/humidity/holiday) attend to the lookback-target segment before the encoder compresses 
+   everything, instead of the model only ever seeing them pre-mixed by concatenation.
 
-Everything else (decoder stack, temporal decoder, lookback skip
-connection, PLForecastingModule plumbing, fit/predict/historical
-forecasts, Optuna-friendliness) is untouched -- inherited straight from
-Darts' `TiDEModel` / `MixedCovariatesTorchModel`.
+Everything else (decoder stack, temporal decoder, lookback skip connection, PLForecastingModule plumbing, fit/predict/historical forecasts, Optuna-friendliness) is untouched 
+-- inherited straight from Darts' `TiDEModel` / `MixedCovariatesTorchModel`.
 """
 
 from typing import Optional
@@ -49,11 +33,8 @@ from darts.utils.torch import MonteCarloDropout
 
 
 class GatedResidualBlock(nn.Module):
-    """Drop-in replacement for Darts' `_ResidualBlock`: same constructor
-    signature, gated (GRN-style) internals instead of plain MLP + skip."""
 
-    def __init__(self, input_dim: int, output_dim: int, hidden_size: int,
-                 dropout: float, use_layer_norm: bool):
+    def __init__(self, input_dim: int, output_dim: int, hidden_size: int, dropout: float, use_layer_norm: bool):
         super().__init__()
         self.fc1 = nn.Linear(input_dim, hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_dim)
@@ -61,12 +42,7 @@ class GatedResidualBlock(nn.Module):
         self.gate = nn.Linear(input_dim, output_dim)
         self.skip = nn.Linear(input_dim, output_dim)
         self.act = nn.ReLU()
-
-        # see module docstring point (1): LayerNorm(1) is degenerate and would zero out all upstream gradient, so only enable it when output_dim > 1, regardless of what the caller asked for.
-        self.layer_norm = (
-            nn.LayerNorm(output_dim) if (use_layer_norm and output_dim > 1)
-            else None
-        )
+        self.layer_norm = ( nn.LayerNorm(output_dim) if (use_layer_norm and output_dim > 1) else None )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.fc2(self.dropout(self.act(self.fc1(x))))
@@ -78,11 +54,6 @@ class GatedResidualBlock(nn.Module):
 
 
 class SegmentAttentionFusion(nn.Module):
-    """Projects each present input segment (lookback target, past-cov
-    features, future-cov features, static covariates) to a common width
-    and runs one self-attention layer across them as tokens, before
-    flattening back down to feed the existing residual encoder stack."""
-
     def __init__(self, segment_dims: list[int], hidden_size: int,
                  num_heads: int, dropout: float):
         super().__init__()
@@ -92,12 +63,12 @@ class SegmentAttentionFusion(nn.Module):
                 "over (e.g. target + at least one covariate/static group); "
                 "got a config with only one input segment."
             )
-        self.projections = nn.ModuleList(
-            [nn.Linear(d, hidden_size) for d in segment_dims]
-        )
+        self.projections = nn.ModuleList([nn.Linear(d, hidden_size) for d in segment_dims])
         self.attn = nn.MultiheadAttention(
-            embed_dim=hidden_size, num_heads=num_heads,
-            dropout=dropout, batch_first=True,
+            embed_dim=hidden_size,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
         )
         self.norm = nn.LayerNorm(hidden_size)
         self.output_dim = len(segment_dims) * hidden_size
@@ -113,20 +84,13 @@ class SegmentAttentionFusion(nn.Module):
 
 
 class _GATideModule(_TideModule):
-    """Same as Darts' `_TideModule`, with GatedResidualBlock throughout
-    and segment-attention fusion at the encoder input."""
+    """Same as Darts' `_TideModule`, with GatedResidualBlock throughout and segment-attention fusion at the encoder input."""
 
     def __init__(self, *args, num_attn_heads: int = 4, **kwargs):
         # let the parent build everything exactly as vanilla TiDE would
-        # (decoders, temporal_decoder, lookback_skip, past/future cov
-        # projections, and a self.encoders stack we're about to replace)
         super().__init__(*args, **kwargs)
         self.num_attn_heads = num_attn_heads
-
-        # --- rebuild past/future covariate projections and encoder as
-        # gated blocks (parent already built these as _ResidualBlock;
-        # swap them 1:1 so shapes stay identical to what the rest of
-        # forward() expects) ---
+       
         if self.past_cov_projection is not None:
             self.past_cov_projection = GatedResidualBlock(
                 input_dim=self.past_cov_dim,
@@ -135,6 +99,7 @@ class _GATideModule(_TideModule):
                 use_layer_norm=self.use_layer_norm,
                 dropout=self.dropout,
             )
+           
         if self.future_cov_projection is not None:
             self.future_cov_projection = GatedResidualBlock(
                 input_dim=self.future_cov_dim,
@@ -144,9 +109,6 @@ class _GATideModule(_TideModule):
                 dropout=self.dropout,
             )
 
-        # figure out segment dims exactly as parent's __init__ did, so
-        # SegmentAttentionFusion's projections match what forward() will
-        # actually hand it
         past_covariates_flat_dim = 0
         if self.past_cov_dim and self.temporal_width_past:
             past_covariates_flat_dim = self.input_chunk_length * self.temporal_width_past
@@ -181,23 +143,25 @@ class _GATideModule(_TideModule):
             )
             fused_dim = self.segment_fusion.output_dim
         else:
-            # only the target lookback is present (no covariates, no
-            # static): nothing to attend over, fall back to a plain
-            # linear projection so the rest of the pipeline is unaffected
+            # only the target lookback is present (no covariates, no static): nothing to attend over, fall back to a plain linear projection so the rest of the pipeline is unaffected
             self.segment_fusion = None
             fused_dim = segment_dims[0]
 
         self.encoders = nn.Sequential(
             GatedResidualBlock(
-                input_dim=fused_dim, output_dim=self.hidden_size,
+                input_dim=fused_dim, 
+                output_dim=self.hidden_size,
                 hidden_size=self.hidden_size,
-                use_layer_norm=self.use_layer_norm, dropout=self.dropout,
+                use_layer_norm=self.use_layer_norm,
+                dropout=self.dropout,
             ),
             *[
                 GatedResidualBlock(
-                    input_dim=self.hidden_size, output_dim=self.hidden_size,
+                    input_dim=self.hidden_size,
+                    output_dim=self.hidden_size,
                     hidden_size=self.hidden_size,
-                    use_layer_norm=self.use_layer_norm, dropout=self.dropout,
+                    use_layer_norm=self.use_layer_norm,
+                    dropout=self.dropout,
                 )
                 for _ in range(self.num_encoder_layers - 1)
             ],
@@ -206,9 +170,11 @@ class _GATideModule(_TideModule):
         self.decoders = nn.Sequential(
             *[
                 GatedResidualBlock(
-                    input_dim=self.hidden_size, output_dim=self.hidden_size,
+                    input_dim=self.hidden_size, 
+                    output_dim=self.hidden_size,
                     hidden_size=self.hidden_size,
-                    use_layer_norm=self.use_layer_norm, dropout=self.dropout,
+                    use_layer_norm=self.use_layer_norm,
+                    dropout=self.dropout,
                 )
                 for _ in range(self.num_decoder_layers - 1)
             ],
@@ -216,7 +182,8 @@ class _GATideModule(_TideModule):
                 input_dim=self.hidden_size,
                 output_dim=self.decoder_output_dim * self.output_chunk_length * self.nr_params,
                 hidden_size=self.hidden_size,
-                use_layer_norm=self.use_layer_norm, dropout=self.dropout,
+                use_layer_norm=self.use_layer_norm,
+                dropout=self.dropout,
             ),
         )
 
@@ -230,7 +197,8 @@ class _GATideModule(_TideModule):
             input_dim=decoder_input_dim,
             output_dim=self.output_dim * self.nr_params,
             hidden_size=self.temporal_decoder_hidden,
-            use_layer_norm=self.use_layer_norm, dropout=self.dropout,
+            use_layer_norm=self.use_layer_norm, 
+            dropout=self.dropout,
         )
 
     @io_processor
@@ -306,18 +274,8 @@ class _GATideModule(_TideModule):
 
 
 class GATiDEModel(TiDEModel):
-    """Same public API as `darts.models.TiDEModel` (fit / predict /
-    historical_forecasts / gridsearch / your Optuna objective all work
-    unchanged) with one extra constructor arg: `num_attn_heads`.
-
-    NOTE: Darts' `ModelMeta` metaclass captures constructor parameters by
-    introspecting `cls.__init__`'s signature directly (see
-    forecasting_model.py: `ModelMeta.__call__`), so this signature is
-    written out explicitly (mirroring `TiDEModel.__init__`) rather than
-    as a `*args, **kwargs` passthrough -- the latter breaks parameter
-    capture (positional args get bound to the wrong names) and silently
-    corrupts things like `output_chunk_shift`.
-    """
+    """Same public API as `darts.models.TiDEModel` (fit / predict / historical_forecasts / gridsearch / your Optuna objective all work unchanged) 
+    with one extra constructor arg: `num_attn_heads`."""
 
     def __init__(
         self,
