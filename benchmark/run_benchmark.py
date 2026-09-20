@@ -1,27 +1,27 @@
 #!/usr/bin/env python
 """
-Benchmark CLI – entry point
-
 Usage examples:
+-----------------------------------------------------------------------------------------------------------------------------
+  # 1.1 Quick test: one dataset, one horizon, all models, 2 epochs:
+  ! python run_benchmark.py --csv-dir "E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data" \
+      --datasets ETTh1 --horizons 96 --models gatide tide dlinear naive --epochs 2 --batch-size 512
+      
+  # 1.2 Full benchmark: L=720, H={96,192,336,720}, all datasets:
+  ! python run_benchmark.py --csv-dir ./GATiDE/data --all-horizons --models all --epochs 100 --batch-size 512 --device auto
 
-  # Quick test: one dataset, one horizon, all models, 2 epochs
-  python run_benchmark.py --csv-dir "E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data" \
-      --datasets ETTh1 --horizons 96 --models gatide tide dlinear naive --epochs 2 --batch-size 32
+  # 1.3 With YAML config
+  !python run_benchmark.py --config configs/default.yaml --csv-dir ./GATiDE/data --epochs 100
 
-  # Full benchmark (requirements): L=720, H={96,192,336,720}, all datasets
-  python run_benchmark.py --csv-dir ./GATiDE/data --all-horizons --models all --epochs 100 --batch-size 32 --device auto
-
-  # With YAML config
-  python run_benchmark.py --config configs/default.yaml --csv-dir ./GATiDE/data --epochs 50
-
-  # Custom save dir
-  python run_benchmark.py --csv-dir ./GATiDE/data --save-dir ./my_results --save-predictions
-
+  # 1.4 Custom save dir
+  !python run_benchmark.py --csv-dir ./GATiDE/data --save-dir ./my_results --save-predictions
+------------------------------------------------------------------------------------------------------------------------------
 Outputs:
   - {save_dir}/benchmark_results.csv      (aggregated metrics)
   - {save_dir}/predictions/*.npy         (per-run pred/true)
   - Console tabular summary (via tabulate)
+-------------------------------------------------------------------------------------------------------------------------------
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,26 +38,19 @@ from benchmark.datasets import discover_datasets
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="GATiDE Benchmark – PyTorch unified loop",
-                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p = argparse.ArgumentParser(description="GATiDE Benchmark – PyTorch unified loop", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     p.add_argument("--config", type=str, default=None, help="YAML config file (configs/default.yaml)")
-
     # Data
-    p.add_argument("--csv-dir", type=str, required=False, default=None,
-                   help="Path to data/ directory containing *.csv (e.g., E:/.../GATiDE/data)")
-    p.add_argument("--datasets", nargs="+", default=None,
-                   help="Dataset names (stems without .csv), e.g., ETTh1 ETTh2 weather")
+    p.add_argument("--csv-dir", type=str, required=False, default=None, help="Path to data/ directory containing *.csv (e.g., E:/.../GATiDE/data)")
+    p.add_argument("--datasets", nargs="+", default=None, help="Dataset names (stems without .csv), e.g., ETTh1 ETTh2 weather")
     p.add_argument("--all-datasets", action="store_true", help="Use all CSVs in csv_dir (auto-discovery)")
     p.add_argument("--lookback", type=int, default=720, help="Look-back context L")
     p.add_argument("--horizons", type=int, nargs="+", default=None, help="Prediction horizons H, e.g., 96 192 336 720")
     p.add_argument("--all-horizons", action="store_true", help="Use all horizons [96,192,336,720]")
-
     # Models
-    p.add_argument("--models", nargs="+", default=None,
-                   help=f"Models to benchmark {list_models()} or 'all'")
+    p.add_argument("--models", nargs="+", default=None, help=f"Models to benchmark {list_models()} or 'all'")
     p.add_argument("--model", type=str, default=None, help="Alias for --models single value")
-
     # Training
     p.add_argument("--epochs", type=int, default=None, help="n_epochs")
     p.add_argument("--batch-size", type=int, default=None)
@@ -73,16 +66,14 @@ def parse_args():
     p.add_argument("--seeds", type=int, nargs="+", default=None, help="Multiple seeds for TiDE 5-run mean±std, e.g., --seeds 0 1 2 3 4")
     p.add_argument("--split-convention", type=str, default=None, choices=["tide", "prior-work"], help="tide=7:1:2 all datasets (TiDE paper §5.1), prior-work=6:2:2 for ETT")
     p.add_argument("--use-covariates", action="store_true", help="Generate time covariates (TiDE §5.1) for GATiDE segment attention")
-
     # Saving
     p.add_argument("--save-dir", type=str, default=None, help="Output directory")
     p.add_argument("--save-predictions", action="store_true", help="Save pred/true .npy")
     p.add_argument("--no-save-predictions", dest="save_predictions", action="store_false")
     p.set_defaults(save_predictions=None)
-
     # Misc
     p.add_argument("--verbose", action="store_true", default=True)
-
+  
     args = p.parse_args()
 
     # Load YAML if provided
@@ -107,6 +98,7 @@ def parse_args():
 
     # Resolve csv_dir
     csv_dir = args.csv_dir or get("data.csv_dir", None, default="E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data")
+  
     if csv_dir is None:
         # Try sibling GATiDE/data
         candidate = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "GATiDE", "data")
