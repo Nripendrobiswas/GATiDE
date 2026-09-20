@@ -1,30 +1,21 @@
 """
-Core benchmark orchestration
-============================
-Loops over datasets x horizons x models, trains, evaluates, aggregates,
-saves predictions, and writes benchmark_results.csv.
-
 This is imported by run_benchmark.py CLI.
 
 Protocol – TiDE-paper faithful (Das et al. 2023, TMLR §5.1) + requirement prompt:
   - Lookback L=720 (TiDE always 720, baselines tuned 24..720), horizons H in {96,192,336,720}
-  - Sequential split 7:1:2 (70%/10%/20%) for all 7 datasets (Electricity 321, Traffic 862,
-    Weather 21, ETTh1/ETTh2 7, ETTm1/ETTm2 7) – TiDE Table 1/2: "train:validation:test ratio is
-    7:1:2 as dictated by prior work". Requirement prompt also 70/10/20 (identical). Alternative
-    "prior-work" (6:2:2 for ETT) supported via --split-convention.
-  - Standardize with train-only mean/std (TiDE: "using the mean and the standard deviations in
-    the training period") – metrics in Table 2 are on normalized scale; requirement asks inverse-
+  - Sequential split 7:1:2 (70%/10%/20%) for all 7 datasets (Electricity 321, Traffic 862, Weather 21, ETTh1/ETTh2 7, ETTm1/ETTm2 7) 
+  – TiDE Table 1/2: "train:validation:test ratio is 7:1:2 as dictated by prior work". Requirement prompt also 70/10/20 (identical). Alternative "prior-work" (6:2:2 for ETT) supported via 
+    --split-convention.
+  - Standardize with train-only mean/std (TiDE: "using the mean and the standard deviations in the training period") – metrics in Table 2 are on normalized scale; requirement asks inverse-
     scaled. This harness reports BOTH (mse/mse_norm).
   - MSE loss, Adam (TiDE default) / AdamW (requirement), CosineAnnealing/StepLR, EarlyStopping
-  - Rolling evaluation: sliding windows stride 1 from test period (TiDE §3: "evaluated on every
-    (look-back, horizon) pair that can be constructed from the test set"), averaged over origins
+  - Rolling evaluation: sliding windows stride 1 from test period (TiDE §3: "evaluated on every (look-back, horizon) pair that can be constructed from the test set"), averaged over origins
     and channels. 5 independent seeds averaged for TiDE Table 2 (we run per-seed rows; aggregation
     prints mean±std).
-  - Covariates: TiDE uses time-derived global dynamic covariates (hour, dayofweek, month,
-    dayofyear + minute if subhourly), normalized train-only (§5.1). Enabled via
-    --use-covariates, in which case GATiDE's SegmentAttentionFusion has ≥2 segments.
+  - Covariates: TiDE uses time-derived global dynamic covariates (hour, dayofweek, month, dayofyear + minute if subhourly), normalized train-only (§5.1). Enabled via --use-covariates,
+    in which case GATiDE's SegmentAttentionFusion has ≥2 segments.
   - Throughput: training time per epoch (s), inference time per batch (ms), GPU peak memory (MB)
-    – TiDE Fig.2 reports training/inference time vs L on Electricity batch 8 T4 GPU.
+  – TiDE Fig.2 reports training/inference time vs L on Electricity batch 8 T4 GPU.
 """
 from __future__ import annotations
 
@@ -45,9 +36,10 @@ def run_benchmark(
     csv_dir: str,
     datasets: Optional[List[str]] = None,
     horizons: List[int] = [96, 192, 336, 720],
-    models: List[str] = ["gatide", "tide", "dlinear", "patchtst", "naive"],
+    # models: List[str] = ["gatide", "tide", "dlinear", "patchtst", "naive"],
+    models: List[str] = ["gatide", "tide"],
     lookback: int = 720,
-    batch_size: int = 32,
+    batch_size: int = 512,
     n_epochs: int = 100,
     lr: float = 1e-3,
     weight_decay: float = 1e-4,
@@ -69,17 +61,10 @@ def run_benchmark(
     verbose: bool = True,
 ) -> pd.DataFrame:
     """Run full benchmark grid.
-
     Args:
-        csv_dir: path to folder containing *.csv datasets
-        datasets: list of dataset stems; if None, auto-discover
-        horizons: list of H values
-        models: list of model keys (see benchmark.models.MODEL_REGISTRY)
-        lookback: L
-        ... training hyperparams
-        save_dir: where to save benchmark_results.csv and .npy predictions
-        model_kwargs: dict mapping model name -> kwargs override
-
+        csv_dir: path to folder containing *.csv datasets; datasets: list of dataset stems; if None, auto-discover; horizons: list of H values
+        models: list of model keys (see benchmark.models.MODEL_REGISTRY); lookback: L ... training hyperparams
+        save_dir: where to save benchmark_results.csv and .npy predictions; model_kwargs: dict mapping model name -> kwargs override
     Returns:
         DataFrame with one row per (dataset, horizon, model)
     """
