@@ -36,7 +36,6 @@ It is implemented as a drop-in subclass of the Darts `TiDEModel`: `fit`,
 > **Status:** [pre-review / under review / published]. Results in this
 > repository correspond to [commit or tag].
 
----
 
 ## 1.2 Installation
 
