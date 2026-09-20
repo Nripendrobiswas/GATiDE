@@ -47,9 +47,8 @@ It is implemented as a drop-in subclass of the Darts `TiDEModel`: `fit`,
 !pip install -e GATiDE/
 ```
 
-The `darts` version is pinned deliberately - GATiDE subclasses private Darts
-internals. See `requirements.txt`.
----
+The `darts` version is pinned deliberately - GATiDE subclasses private Darts internals. See `requirements.txt`.
+
 ## 1.3 Model Import
 ```python
 import sys
