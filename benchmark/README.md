@@ -1,8 +1,8 @@
-# GATiDE Benchmark – Production-Ready Forecasting Evaluation
+# GATiDE Benchmark – Forecasting Evaluation
 
-Modular PyTorch benchmark for evaluating **GATiDE** (`src/ga_tide/model.py`) against standard baselines
+> Modular PyTorch benchmark for evaluating **GATiDE** (`src/ga_tide/model.py`) against standard baselines
 **TiDE, DLinear, PatchTST, Naive (persistence)** on the LTSF datasets available in `data/` (ETTh1, ETTh2, ETTm1, ETTm2, Electricity, Weather, Traffic).
-
+---
 Implements the exact protocol requested:
 
 - **Lookback** `L=720`, **Horizons** `H ∈ {96,192,336,720}`
