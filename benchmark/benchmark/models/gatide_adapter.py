@@ -1,35 +1,23 @@
 """
-GATiDE adapter – bridges src/ga_tide/model.py into the unified PyTorch benchmark.
-
-Two integration paths:
-
-1) Darts path (optional): wraps `GATiDEModel` from `src/ga_tide/model.py` (darts.models.TiDEModel subclass).
-   This path is used when running via `benchmark_darts.py` or when --use-darts flag is set.
-   It inherits Darts' PLForecastingModule plumbing, add_encoders, historical_forecasts, etc.
+GATiDE adapter – bridges src/ga_tide/model.py into the unified PyTorch benchmark. Two integration paths:
+1) Darts path (optional): wraps `GATiDEModel` from `src/ga_tide/model.py` (darts.models.TiDEModel subclass). This path is used when running via `benchmark_darts.py` or 
+   when --use-darts flag is set. It inherits Darts' PLForecastingModule plumbing, add_encoders, historical_forecasts, etc.
    See scripts/benchmark.py in the sibling GATiDE repo for the canonical Darts usage.
+2) Pure PyTorch path (default for this benchmark): re-implements the GATiDE architectural deltas (GatedResidualBlock + SegmentAttentionFusion) as a standalone nn.Module 
+   that accepts (B, L, C) tensors, so it can be trained with the same Engine (MSE, AdamW, CosineAnnealing) as TiDE/DLinear/PatchTST for_apples-to-apples throughput and accuracy comparison.
 
-2) Pure PyTorch path (default for this benchmark): re-implements the GATiDE
-   architectural deltas (GatedResidualBlock + SegmentAttentionFusion) as a
-   standalone nn.Module that accepts (B, L, C) tensors, so it can be trained
-   with the same Engine (MSE, AdamW, CosineAnnealing) as TiDE/DLinear/PatchTST
-   for_apples-to-apples throughput and accuracy comparison.
-
-The pure path does NOT require Darts at runtime, only torch. It faithfully
-re-implements the paper description:
+# The pure path does NOT require Darts at runtime, only torch. It faithfull re-implements the paper description:
   - GatedResidualBlock: fc1->ReLU->dropout->fc2 + sigmoid gate on skip branch
-  - SegmentAttentionFusion: project each input segment (here single segment = flattened lookback)
-    to hidden_size and run MultiheadAttention across segments. When only one segment
-    is present (no covariates, the typical benchmark case without add_encoders), the
-    fusion is bypassed – matching the fallback in the original code
-    (segment_fusion = None when len(segment_dims) < 2).
+  - SegmentAttentionFusion: project each input segment (here single segment = flattened lookback) to hidden_size and run MultiheadAttention across segments. When only one segment
+    is present (no covariates, the typical benchmark case without add_encoders), the fusion is bypassed – matching the fallback in the original code (segment_fusion = None when 
+    len(segment_dims) < 2).
 
-For the benchmark's covariate-free setting (lookback only), GATiDE reduces to:
-  Gated encoder/decoder stacks + skip connection, which is still meaningfully
-  different from vanilla TiDE (gating + dropout placement + optional LayerNorm fix).
+# For the benchmark's covariate-free setting (lookback only), GATiDE reduces to: Gated encoder/decoder stacks + skip connection, which is still meaningfully different from vanilla TiDE 
+   (gating + dropout placement + optional LayerNorm fix).
 
-If src/ga_tide/model.py is importable, we also expose the original classes for
-advanced users (e.g., running Darts historical_forecasts with covariates).
+If src/ga_tide/model.py is importable, we also expose the original classes for advanced users (e.g., running Darts historical_forecasts with covariates).
 """
+
 from __future__ import annotations
 
 import os
@@ -45,10 +33,7 @@ import torch.nn as nn
 # ---------------------------------------------------------------------------
 
 def _try_import_original():
-    """Attempt to import GATiDEModel from sibling repo src/ga_tide/model.py.
-
-    Returns (GATiDEModel, GatedResidualBlock, SegmentAttentionFusion, _GATideModule) or (None, ...)
-    """
+    """Attempt to import GATiDEModel from sibling repo src/ga_tide/model.py. Returns (GATiDEModel, GatedResidualBlock, SegmentAttentionFusion, _GATideModule) or (None, ...) """
     candidates = [
         # When pip install -e . was run from GATiDE repo
         "ga_tide.model",
@@ -98,9 +83,8 @@ else:
 
 class GatedResidualBlock(nn.Module):
     """Gated residual block – identical to src/ga_tide/model.py:GatedResidualBlock."""
-
-    def __init__(self, input_dim: int, output_dim: int, hidden_size: int,
-                 dropout: float = 0.1, use_layer_norm: bool = False):
+   
+    def __init__(self, input_dim: int, output_dim: int, hidden_size: int, dropout: float = 0.1, use_layer_norm: bool = False):
         super().__init__()
         self.fc1 = nn.Linear(input_dim, hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_dim)
@@ -123,15 +107,12 @@ class GatedResidualBlock(nn.Module):
 
 class SegmentAttentionFusion(nn.Module):
     """Segment attention fusion – same as original but decoupled."""
-
-    def __init__(self, segment_dims: list[int], hidden_size: int,
-                 num_heads: int = 4, dropout: float = 0.1):
+    def __init__(self, segment_dims: list[int], hidden_size: int, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         if len(segment_dims) < 2:
             raise ValueError("Need >=2 segments for attention fusion")
         self.projections = nn.ModuleList([nn.Linear(d, hidden_size) for d in segment_dims])
-        self.attn = nn.MultiheadAttention(embed_dim=hidden_size, num_heads=num_heads,
-                                          dropout=dropout, batch_first=True)
+        self.attn = nn.MultiheadAttention(embed_dim=hidden_size, num_heads=num_heads, dropout=dropout, batch_first=True)
         self.norm = nn.LayerNorm(hidden_size)
         self.output_dim = len(segment_dims) * hidden_size
 
@@ -145,27 +126,18 @@ class SegmentAttentionFusion(nn.Module):
 class GATiDEPure(nn.Module):
     """
     Pure PyTorch GATiDE – standalone for benchmark's unified training loop.
-
     Faithful port of the original `_GATideModule` forward (src/ga_tide/model.py)
+    
     for the two configurations it supports:
+    - Covariate-free (num_time_covariates=0, the benchmark default): single flattened-lookback segment -> segment_fusion is None (matching the original's fallback), 
+       gated encoder/decoder stacks + lookback skip.
+    - With covariates (num_time_covariates=F > 0, e.g. --use-covariates): covariates (T, F) are projected per-timestep by a GatedResidualBlock (F -> temporal_width_future), 
+       flattened over input+output steps and fed as a second attention token to SegmentAttentionFusion, and the last `horizon` projected steps are concatenated into the 
+       temporal decoder input -- exactly mirroring `model.py:future_cov_projection / segment_fusion / temporal_decoder_input`. Segment dims become [L*C, (L+H)*temporal_width_future],
+       matching the original's `(input_chunk_length + output_chunk_length) * temporal_width_future`.
 
-    - Covariate-free (num_time_covariates=0, the benchmark default):
-      single flattened-lookback segment -> segment_fusion is None (matching the
-      original's fallback), gated encoder/decoder stacks + lookback skip.
-
-    - With covariates (num_time_covariates=F > 0, e.g. --use-covariates):
-      covariates (T, F) are projected per-timestep by a GatedResidualBlock
-      (F -> temporal_width_future), flattened over input+output steps and fed as
-      a second attention token to SegmentAttentionFusion, and the last `horizon`
-      projected steps are concatenated into the temporal decoder input -- exactly
-      mirroring `model.py:future_cov_projection / segment_fusion /
-      temporal_decoder_input`. Segment dims become
-      [L*C, (L+H)*temporal_width_future], matching the original's
-      `(input_chunk_length + output_chunk_length) * temporal_width_future`.
-
-    forward signature: forward(x) or forward(x, cov) -- cov is (B, L+H, F).
-    Trainer dispatches cov only to models with `accepts_covariates=True`.
-
+    forward signature: forward(x) or forward(x, cov) -- cov is (B, L+H, F). Trainer dispatches cov only to models with `accepts_covariates=True`.
+    
     Input:  x (B, L, C), optional cov (B, L+H, F)
     Output: (B, H, C)
     """
@@ -247,22 +219,14 @@ class GATiDEPure(nn.Module):
 
         # Temporal decoder: decoder_output_dim (+ projected future cov width when
         # covariates are active) -> C, applied per timestep as in the original
-        self.temporal_decoder = GatedResidualBlock(
-            decoder_input_dim, num_features,
-            temporal_decoder_hidden, dropout, use_layer_norm
-        )
+        self.temporal_decoder = GatedResidualBlock( decoder_input_dim, num_features, temporal_decoder_hidden, dropout, use_layer_norm)
         self._temporal_decoder_cov = self.num_time_covariates > 0
         self.lookback_skip = nn.Linear(lookback, horizon)
         self._warned_missing_cov = False
 
     def forward(self, x: torch.Tensor, cov: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        x: (B, L, C)
-        cov: (B, L+H, F) – required when built with num_time_covariates > 0
-        returns: (B, H, C)
-        """
+        """x: (B, L, C); cov: (B, L+H, F) – required when built with num_time_covariates > 0; returns: (B, H, C)"""
         B, L, C = x.shape
-
         cov_proj = None
         if self.cov_projection is not None:
             if cov is None:
@@ -304,12 +268,8 @@ class GATiDEPure(nn.Module):
 GATiDE = GATiDEPure
 
 def get_gatide_model(*args, use_darts: bool = False, **kwargs):
-    """
-    Factory that returns either pure PyTorch GATiDE or the Darts GATiDEModel.
-
-    By default returns pure PyTorch (fair throughput comparison). Set
-    use_darts=True to get the original Darts model (requires darts & compatible env).
-    """
+    """Factory that returns either pure PyTorch GATiDE or the Darts GATiDEModel. 
+    By default returns pure PyTorch (fair throughput comparison). Set use_darts=True to get the original Darts model (requires darts & compatible env)."""
     if use_darts and GATiDEModel_orig is not None:
         # GATiDEModel expects input_chunk_length etc. – map args
         # Caller must supply via kwargs with Darts naming
