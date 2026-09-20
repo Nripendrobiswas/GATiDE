@@ -1,18 +1,12 @@
 """
-Training & Evaluation Engine
-============================
-- MSE loss, AdamW/Adam, schedulers (CosineAnnealing, StepLR) – TiDE paper uses Adam with MSE,
-  requirement asks AdamW; both supported via optimizer_name (TiDE §5.1: "we optimize using the
+Training & Evaluation Engine:
+- MSE loss, AdamW/Adam, schedulers (CosineAnnealing, StepLR) – TiDE paper uses Adam with MSE, requirement asks AdamW; both supported via optimizer_name (TiDE §5.1: "we optimize using the
   default settings of the Adam optimizer")
 - EarlyStopping on val_loss (normalized scale, as training loss)
-- Throughput tracking: training time per epoch (s), GPU peak memory (MB) via
-  torch.cuda.max_memory_allocated (TiDE Fig.2 reports training time per epoch and inference
-  time per batch vs L on Electricity, batch 8, T4 GPU – we report both)
+- Throughput tracking: training time per epoch (s), GPU peak memory (MB) via torch.cuda.max_memory_allocated
 - Metrics on BOTH scales:
-    * normalized (standardized) MSE/MAE – TiDE Table 2: "All metrics are reported on standard
-      normalized datasets (using mean and std in training period)"
-    * inverse-scaled (original) MSE/MAE – requirement prompt: "Compute metrics on inverse-scaled
-      predictions"
+    * normalized (standardized) MSE/MAE – TiDE Table 2: "All metrics are reported on standard normalized datasets (using mean and std in training period)"
+    * inverse-scaled (original) MSE/MAE – requirement prompt: "Compute metrics on inverse-scaled predictions"
   Both are returned; normalized is primary for paper comparability, inverse is for requirement.
 - Clean PyTorch loop (no Lightning required, but compatible)
 - Mixed precision optional
@@ -22,13 +16,11 @@ from __future__ import annotations
 import time
 import copy
 from typing import Optional, Dict, Tuple, List
-
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
 from benchmark.utils.metrics import mse, mae
 
 
@@ -58,7 +50,7 @@ class EarlyStopping:
         if val_loss < self.best - self.min_delta:
             self.best = val_loss
             self.counter = 0
-            return True  # improved
+            return True  
         else:
             self.counter += 1
             if self.counter >= self.patience:
@@ -90,7 +82,7 @@ def train_one_model(
     train_loader: DataLoader,
     val_loader: DataLoader,
     test_loader: DataLoader,
-    scaler,  # StandardScaler instance for inverse transform
+    scaler,  
     n_epochs: int = 100,
     lr: float = 1e-3,
     weight_decay: float = 1e-4,
@@ -106,11 +98,8 @@ def train_one_model(
 ) -> Dict:
     """
     Train with MSE loss, AdamW/Adam, early stopping.
-
     Returns dict with:
-      model (best state), history, train_time_per_epoch, peak_memory_mb,
-      inference_time_ms_per_batch, test_mse (original), test_mae (original),
-      test_mse_norm/test_mae_norm (normalized, TiDE Table 2), val equivalents, epochs_run
+    model (best), history, train_time_per_epoch, peak_memory_mb, inference_time_ms_per_batch, test_mse (original), test_mae (original), test_mse_norm/test_mae_norm (normalized), val equivalents, epochs_run
     """
     scheduler_params = scheduler_params or {}
 
@@ -308,9 +297,7 @@ def train_one_model(
 
 @torch.no_grad()
 def measure_inference_time(model: nn.Module, loader: DataLoader, device: torch.device | str = "cpu", warmup: int = 3) -> float:
-    """Measure average inference time per batch in ms (TiDE Fig.2: inference time for one batch).
-    Runs warmup + 10 timed batches on device, synchronized if CUDA.
-    """
+    """Measure average inference time per batch in ms (inference time for one batch). Runs warmup + 10 timed batches on device, synchronized if CUDA."""
     if isinstance(device, str):
         device = torch.device(device)
     model.eval()
@@ -353,11 +340,8 @@ def evaluate(
     return_arrays: bool = False,
 ) -> Tuple[float, float, float, float, Optional[np.ndarray], Optional[np.ndarray]]:
     """Evaluate on loader, compute BOTH normalized (TiDE Table 2) and inverse-scaled metrics.
-
-    Returns (mse_orig, mae_orig, mse_norm, mae_norm, preds_array, trues_array)
-    where mse_norm/mae_norm are on standardized scale (training-period mean/std),
-    directly comparable to TiDE paper Table 2. mse_orig/mae_orig are on original scale
-    as per requirement prompt. Arrays are (N, H, C) in original scale if requested.
+    Returns (mse_orig, mae_orig, mse_norm, mae_norm, preds_array, trues_array) where mse_norm/mae_norm are on standardized scale (training-period mean/std), directly comparable to 
+    TiDE paper Table 2. mse_orig/mae_orig are on original scale as per requirement prompt. Arrays are (N, H, C) in original scale if requested.
     """
     if isinstance(device, str):
         device = torch.device(device)
