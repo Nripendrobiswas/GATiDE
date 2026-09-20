@@ -70,12 +70,12 @@ GATiDE/data/
 ### Minimal run (CPU, 2 epochs, 1 dataset/horizon, smoke test)
 
 ```bash
-python run_benchmark.py \
+!python run_benchmark.py \
   --csv-dir "E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data" \
   --datasets ETTh1 \
   --horizons 96 \
-  --models gatide tide dlinear naive \
-  --epochs 2 --batch-size 32 --device cpu --save-dir ./benchmark_outputs_test
+  --models gatide tide \
+  --epochs 2 --batch-size 512 --device cuda --save-dir ./benchmark_outputs_test
 ```
 
 ### Full protocol (L=720, H={96,192,336,720}, all datasets, 100 epochs)
@@ -85,22 +85,22 @@ python run_benchmark.py \
   --csv-dir "E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data" \
   --all-datasets --all-horizons \
   --models all \
-  --epochs 100 --batch-size 32 --lr 1e-3 --scheduler cosine --patience 10 \
+  --epochs 100 --batch-size 512 --lr 1e-3 --scheduler cosine --patience 10 \
   --device auto --save-dir ./benchmark_outputs
 ```
 
-`--models all` expands to `gatide tide dlinear patchtst naive`.
+`--models all` expands to `gatide tide`.
 
 ### With YAML config
 
 ```bash
-python run_benchmark.py --config configs/default.yaml --csv-dir ./GATiDE/data
+!python run_benchmark.py --config configs/default.yaml --csv-dir ./GATiDE/data
 ```
 
 Override any YAML field from CLI, e.g.:
 
 ```bash
-python run_benchmark.py --config configs/default.yaml --epochs 50 --lr 5e-4 --horizons 96 192
+!python run_benchmark.py --config configs/default.yaml --epochs 100 --lr 5e-4 --horizons 96 192
 ```
 
 ---
@@ -116,7 +116,7 @@ data:
   split: [0.70,0.10,0.20]
 
 training:
-  batch_size: 32
+  batch_size: 512
   n_epochs: 100
   lr: 1.0e-3
   optimizer: adamw
@@ -136,13 +136,10 @@ All fields are overridable via CLI flags (`--lr`, `--batch-size`, `--scheduler s
 
 ## Model Integration
 
-- **GATiDE** – `benchmark/models/gatide_adapter.py` imports `GATiDEModel`, `GatedResidualBlock`, `SegmentAttentionFusion` from `src/ga_tide/model.py` (tries pip-installed `ga_tide` then filesystem sibling).  
+> - **GATiDE** – `benchmark/models/gatide_adapter.py` imports `GATiDEModel`, `GatedResidualBlock`, `SegmentAttentionFusion` from `src/ga_tide/model.py` (tries pip-installed `ga_tide` then filesystem sibling).  
   The default benchmark uses the **pure PyTorch reimplementation** `GATiDEPure` (same architecture, no Darts dependency) so all baselines share the identical training loop for fair throughput comparison. Set `use_darts=True` via `get_gatide_model(..., use_darts=True)` to use the original Darts model with `historical_forecasts`.
 
-- **TiDE** – `benchmark/models/tide.py`: vanilla residual blocks, encoder/decoder stack, temporal decoder, lookback skip (Darts-faithful but Darts-free).
-- **DLinear** – `benchmark/models/dlinear.py`: moving-average decomposition + per-channel/ shared linear.
-- **PatchTST** – `benchmark/models/patchtst.py`: patching + TransformerEncoder (channel-independent).
-- **Naive** – `benchmark/models/naive.py`: persistence (last / mean / drift), no training.
+> - **TiDE** – `benchmark/models/tide.py`: vanilla residual blocks, encoder/decoder stack, temporal decoder, lookback skip (Darts-faithful but Darts-free).
 
 Factory: `benchmark/models/__init__.py:MODEL_REGISTRY` and `get_model(name)`.
 
