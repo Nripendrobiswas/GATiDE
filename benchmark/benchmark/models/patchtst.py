@@ -2,7 +2,6 @@
 PatchTST – Patch Time Series Transformer.
 
 Reference: Nie et al. 2023 "A Time Series is Worth 64 Words: Long-term Forecasting with Transformers"
-Channel-independent PatchTST: each channel is treated independently, shared weights.
 
 Simplified implementation:
 - Patch creation via unfold (patch_len, stride)
