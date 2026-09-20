@@ -29,7 +29,7 @@ pip install -e "E:/Machine Learning Research/GATiDE Final Verse/GATiDE"
 export PYTHONPATH="E:/Machine Learning Research/GATiDE Final Verse/GATiDE/src:$PYTHONPATH"
 ```
 
-### 🔌 Required Dependencies:
+### Required Dependencies:
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/Nripendrobiswas/GATiDE/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Darts](https://img.shields.io/badge/Darts-0.46.1-4B8BBE)](https://unit8co.github.io/darts/)
@@ -60,8 +60,6 @@ GATiDE/data/
   traffic.csv
 ```
 
-Each CSV is `date, <features...>, OT` (or 321/370 columns for Electricity).  
-The loader auto-detects the `date` column, sorts chronologically, coerces to numeric, and forward-fills NaNs.
 
 > **Note on Electricity:** the CSV (`electricity.csv`, 321 clients) is the LTSF/ECL benchmark variant; Darts' bundled `ElectricityDataset` (370 clients) is a different series – use `--csv-dir` for comparability.
 
