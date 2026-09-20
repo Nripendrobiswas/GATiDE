@@ -2,33 +2,39 @@
 """
 Optuna hyperparameter tuning for GATiDE benchmark – ICLR 2027 ready
 ====================================================================
-Equal-budget tuning per model/dataset/horizon on validation mse_norm (TiDE paper §5.1:
-"tune hyper-parameters using the validation set rolling validation error", Table 2 reports
-test mean over 5 seeds). Requirement configs remain via configs/default.yaml.
-
 Usage:
   !pip install optuna
 
-  # single setting – 50 trials (GATiDE vs TiDE equal budget)
+  # 1.1 single setting – 50 trials (GATiDE vs TiDE equal budget)
   !python tune_optuna.py --dataset ETTh1 --horizon 96 --model tide --n-trials 50 --epochs 100
   !python tune_optuna.py --dataset ETTh1 --horizon 96 --model gatide --n-trials 50 --epochs 100
 
-  # sweep all horizons for a dataset
-  for H in 96 192 336 720; do python tune_optuna.py --dataset ETTh1 --horizon $H --model all --n-trials 50; done
+  # 1.2 sweep all horizons for a dataset
+  for H in 96 192 336 720; 
+    do 
+      python tune_optuna.py
+      --dataset ETTh1
+      --horizon $H
+      --model all
+      --n-trials 50;
+    done
 
-  # full matrix (7 datasets × 4 horizons × 3 models × 50 trials) – use GPU
-  !python tune_optuna.py --dataset all --horizon all --model all --n-trials 50 --device cuda
+  # 1.3 full matrix (7 datasets × 4 horizons × 2 models × 50 trials) – use GPU
+  !python tune_optuna.py 
+    --dataset all
+    --horizon all
+    --model all
+    --n-trials 50
+    --device cuda
 
 Outputs:
   tuned_configs/{dataset}_H{horizon}_{model}_best.json  – best params
   tuned_configs/{dataset}_H{horizon}_{model}_study.db   – optuna study (sqlite)
   After tuning, merge into configs/tuned_best.yaml and run:
   python run_benchmark.py --config configs/tuned_best.yaml --seeds 0 1 2 3 4 --all-horizons --all-datasets --split-convention tide
-
-Search spaces are defined per model to match TiDE Appendix B.3 and PatchTST/DLinear papers.
-All trials use identical protocol: L=720, 7:1:2 split, StandardScaler train-only, MSE loss,
-val mse_norm objective, EarlyStopping patience 10.
+  
 """
+
 from __future__ import annotations
 
 import argparse
@@ -63,7 +69,6 @@ from benchmark.trainer import train_one_model
 
 def sample_tide_gatide(trial: optuna.Trial, model_name: str,
                        batch_choices: Optional[list] = None) -> Dict[str, Any]:
-    """TiDE/GATiDE shared space – Appendix B.3 + hidden_size divisibility for GATiDE."""
     if batch_choices is None:
         batch_choices = [32, 64]
       
@@ -78,7 +83,7 @@ def sample_tide_gatide(trial: optuna.Trial, model_name: str,
         "num_decoder_layers": trial.suggest_int("num_decoder_layers", 1, 2),
         "decoder_output_dim": trial.suggest_categorical("decoder_output_dim", [8, 16, 32]),
         "temporal_decoder_hidden": trial.suggest_categorical("temporal_decoder_hidden", [32, 64, 128]),
-        "dropout": trial.suggest_categorical("dropout", [0.1, 0.2, 0.3]),
+        "dropout": trial.suggest_categorical("dropout", [0.1, 0.2, 0.3, 0.5]),
         "use_layer_norm": trial.suggest_categorical("use_layer_norm", [False, True]),
         # num_attn_heads fixed 4 for gatide to keep hidden divisible; tide ignores
         "num_attn_heads": 4,
@@ -87,39 +92,39 @@ def sample_tide_gatide(trial: optuna.Trial, model_name: str,
         "_batch_size": trial.suggest_categorical("batch_size", batch_choices),
     }
 
-def sample_dlinear(trial: optuna.Trial) -> Dict[str, Any]:
-    return {
-        "kernel_size": trial.suggest_categorical("kernel_size", [25, 51, 75]),
-        "individual": trial.suggest_categorical("individual", [False, True]),
-        "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
-    }
+# def sample_dlinear(trial: optuna.Trial) -> Dict[str, Any]:
+#     return {
+#         "kernel_size": trial.suggest_categorical("kernel_size", [25, 51, 75]),
+#         "individual": trial.suggest_categorical("individual", [False, True]),
+#         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
+#         "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+#     }
 
-def sample_patchtst(trial: optuna.Trial) -> Dict[str, Any]:
-    # Keep patch num reasonable for L=720: patch_len 16/24, stride 8/16
-    patch_len = trial.suggest_categorical("patch_len", [16, 24])
-    stride = trial.suggest_categorical("stride", [8, 16])
-    # Ensure stride <= patch_len
-    if stride > patch_len:
-        stride = patch_len
-    return {
-        "patch_len": patch_len,
-        "stride": stride,
-        "n_layers": trial.suggest_int("n_layers", 1, 2),
-        "d_model": trial.suggest_categorical("d_model", [64, 128]),
-        "n_heads": 4,
-        "d_ff": trial.suggest_categorical("d_ff", [128, 256]),
-        "dropout": trial.suggest_categorical("dropout", [0.1, 0.2]),
-        "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
-        "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
-    }
+# def sample_patchtst(trial: optuna.Trial) -> Dict[str, Any]:
+#     # Keep patch num reasonable for L=720: patch_len 16/24, stride 8/16
+#     patch_len = trial.suggest_categorical("patch_len", [16, 24])
+#     stride = trial.suggest_categorical("stride", [8, 16])
+#     # Ensure stride <= patch_len
+#     if stride > patch_len:
+#         stride = patch_len
+#     return {
+#         "patch_len": patch_len,
+#         "stride": stride,
+#         "n_layers": trial.suggest_int("n_layers", 1, 2),
+#         "d_model": trial.suggest_categorical("d_model", [64, 128]),
+#         "n_heads": 4,
+#         "d_ff": trial.suggest_categorical("d_ff", [128, 256]),
+#         "dropout": trial.suggest_categorical("dropout", [0.1, 0.2]),
+#         "_lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
+#         "_batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+#     }
 
-def sample_naive(trial: optuna.Trial) -> Dict[str, Any]:
-    return {
-        "strategy": trial.suggest_categorical("strategy", ["last", "mean"]),
-        "_lr": 1e-3,
-        "_batch_size": 32,
-    }
+# def sample_naive(trial: optuna.Trial) -> Dict[str, Any]:
+#     return {
+#         "strategy": trial.suggest_categorical("strategy", ["last", "mean"]),
+#         "_lr": 1e-3,
+#         "_batch_size": 32,
+#     }
 
 
 # ---------------------------------------------------------------------------
@@ -143,11 +148,8 @@ def run_one_trial(
     # Separate model kwargs from training overrides
     lr = params.pop("_lr", 1e-3)
     batch_size = params.pop("_batch_size", 32)
-
-    split = load_and_split(csv_dir, dataset, lookback=lookback, horizon=horizon,
-                           split_convention=split_convention, use_covariates=use_covariates)
-    train_loader, val_loader, test_loader = make_loaders(split, lookback, horizon, batch_size=batch_size,
-                                                         use_covariates=use_covariates)
+    split = load_and_split(csv_dir, dataset, lookback=lookback, horizon=horizon, split_convention=split_convention, use_covariates=use_covariates)
+    train_loader, val_loader, test_loader = make_loaders(split, lookback, horizon, batch_size=batch_size, use_covariates=use_covariates)
 
     # GATiDE: build with covariates when requested & available (GATiDE only –
     # baselines stay covariate-free, matching the benchmark protocol)
@@ -156,8 +158,7 @@ def run_one_trial(
         n_cov = split.cov_train.shape[1]
 
     ModelCls = get_model(model_name)
-    model = ModelCls(num_features=split.n_features, lookback=lookback, horizon=horizon,
-                     num_time_covariates=n_cov, **params)
+    model = ModelCls(num_features=split.n_features, lookback=lookback, horizon=horizon, num_time_covariates=n_cov, **params)
 
     out = train_one_model(
         model=model,
@@ -177,7 +178,6 @@ def run_one_trial(
         amp=False,
         verbose=False,
     )
-    # TiDE tunes on validation mse_norm (normalized, Table 2)
     return float(out["val_mse_norm"])
 
 
@@ -186,21 +186,22 @@ def run_one_trial(
 # ---------------------------------------------------------------------------
 
 DATASETS_ALL = ["ETTh1", "ETTh2", "ETTm1", "ETTm2", "electricity", "weather", "traffic"]
-MODELS_ALL = ["gatide", "tide", "dlinear", "patchtst", "naive"]
+# MODELS_ALL = ["gatide", "tide", "dlinear", "patchtst", "naive"]
+MODELS_ALL = ["gatide", "tide"]
 
 def main():
     p = argparse.ArgumentParser(description="Optuna tuning for GATiDE benchmark (ICLR 2027 equal-budget)")
     p.add_argument("--csv-dir", type=str, default="E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data")
     p.add_argument("--dataset", type=str, default="ETTh1", help="dataset name or 'all'")
     p.add_argument("--horizon", type=str, default="96", help="horizon int or 'all' (96,192,336,720)")
-    p.add_argument("--model", type=str, default="tide", help="model name or 'all' (gatide,tide,dlinear,patchtst)")
+    p.add_argument("--model", type=str, default="tide", help="model name or 'all' (gatide,tide)")
     p.add_argument("--lookback", type=int, default=720, help="fixed L=720 per TiDE paper")
     p.add_argument("--n-trials", type=int, default=30, help="trials per setting (use 50 for paper)")
     p.add_argument("--n-epochs", type=int, default=100)
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--split-convention", type=str, default="tide", choices=["tide", "prior-work"])
-    p.add_argument("--use-covariates", action="store_true", help="Generate time covariates (TiDE §5.1) for GATiDE segment attention – " "matches run_benchmark.py protocol. GATiDE only; baselines stay covariate-free.")
-    p.add_argument("--batch-sizes", type=int, nargs="+", default=[32, 64], help="Batch size choices searched by gatide/tide, e.g. --batch-sizes 32 64 512. " "dlinear/patchtst/naive keep their fixed spaces.")
+    p.add_argument("--use-covariates", action="store_true", help="Generate time covariates for GATiDE segment attention – " "matches run_benchmark.py protocol. GATiDE only; baselines stay covariate-free.")
+    p.add_argument("--batch-sizes", type=int, nargs="+", default=[32, 64], help="Batch size choices searched by gatide/tide, e.g. --batch-sizes 32 64 512.")
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--seed", type=int, default=42, help="study seed")
     p.add_argument("--out-dir", type=str, default="./tuned_configs")
@@ -291,12 +292,12 @@ def main():
                 def objective(trial: optuna.Trial) -> float:
                     if model_name in ("gatide", "ga-tide", "tide"):
                         params = sample_tide_gatide(trial, model_name, batch_choices=batch_choices)
-                    elif model_name == "dlinear":
-                        params = sample_dlinear(trial)
-                    elif model_name == "patchtst":
-                        params = sample_patchtst(trial)
-                    else:
-                        params = sample_naive(trial)
+                    # elif model_name == "dlinear":
+                    #     params = sample_dlinear(trial)
+                    # elif model_name == "patchtst":
+                    #     params = sample_patchtst(trial)
+                    # else:
+                    #     params = sample_naive(trial)
 
                     # Set trial seed for determinism per trial
                     trial_seed = args.seed + trial.number
