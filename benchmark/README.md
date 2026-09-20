@@ -51,8 +51,13 @@ Place the LTSF CSVs in `data/` (already present in the sibling `GATiDE/data/`):
 
 ```
 GATiDE/data/
-  ETTh1.csv   ETTh2.csv   ETTm1.csv   ETTm2.csv
-  weather.csv electricity.csv traffic.csv
+  ETTh1.csv
+  ETTh2.csv
+  ETTm1.csv
+  ETTm2.csv
+  weather.csv
+  electricity.csv
+  traffic.csv
 ```
 
 Each CSV is `date, <features...>, OT` (or 321/370 columns for Electricity).  
