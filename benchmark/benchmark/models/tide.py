@@ -1,22 +1,17 @@
 """
 TiDE (Time-series Dense Encoder) – standalone PyTorch implementation.
-
 Reference: Das et al. 2023 "Long-term Forecasting with TiDE: Time-series Dense Encoder"
-Architecture mirrors Darts' _TideModule but decoupled from Darts, so it can be
-trained with the unified PyTorch loop (MSE, AdamW, CosineAnnealing).
 
 Input:  (B, L, C)   lookback window
 Output: (B, H, C)   horizon forecast
 Channel-independent by default but can be used multivariate (C is n_features).
 
-Simplifications vs. Darts TiDE:
-- No past/future covariate projections in this pure version (covariates are
-  optional; the benchmark pipeline currently supplies only target series).
+# Simplifications vs. Darts TiDE:
+- No past/future covariate projections in this pure version (covariates are optional; the benchmark pipeline currently supplies only target series).
 - Static covariates not used.
 - ResidualBlock is plain MLP+skip+optional LayerNorm (gating/attention are GATiDE).
 
-This baseline guarantees a fair comparison under the same scaling / windowing /
-optimisation as GATiDE.
+This baseline guarantees a fair comparison under the same scaling / windowing / optimisation as GATiDE.
 """
 from __future__ import annotations
 
@@ -26,7 +21,6 @@ import torch.nn as nn
 
 class ResidualBlock(nn.Module):
     """TiDE residual block: Linear -> ReLU -> Dropout -> Linear + skip -> LayerNorm."""
-
     def __init__(self, input_dim: int, output_dim: int, hidden_size: int,
                  dropout: float = 0.1, use_layer_norm: bool = False):
         super().__init__()
@@ -48,7 +42,6 @@ class ResidualBlock(nn.Module):
 
 class TiDE(nn.Module):
     """Vanilla TiDE for multivariate direct multi-step forecasting.
-
     Args:
         num_features: C (n channels)
         lookback: L
@@ -107,10 +100,7 @@ class TiDE(nn.Module):
         self.decoders = nn.Sequential(*decoder_layers)
 
         # Temporal decoder: maps decoder_output_dim -> C per timestep
-        self.temporal_decoder = ResidualBlock(
-            decoder_output_dim, num_features * self.nr_params,
-            temporal_decoder_hidden, dropout, use_layer_norm
-        )
+        self.temporal_decoder = ResidualBlock( decoder_output_dim, num_features * self.nr_params, temporal_decoder_hidden, dropout, use_layer_norm)
         # Lookback skip connection (per-channel linear from L -> H)
         self.lookback_skip = nn.Linear(lookback, horizon)
 
