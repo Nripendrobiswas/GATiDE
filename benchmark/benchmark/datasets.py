@@ -9,17 +9,16 @@ Data ingestion & preprocessing
     * --split-convention prior-work: 6:2:2 for ETT family (12/4/4 months) and 7:1:2 elsewhere
       -> matches Informer/Autoformer/DLinear convention used in prior GATiDE scripts/benchmark.py
   Requirement prompt specifies 70/10/20, which equals tide (7:1:2). Both are supported.
-- Standardize with train-only statistics (StandardScaler) to prevent leakage.
-  TiDE paper: "all the experiments are performed on standard normalized datasets (using the mean and
-  the standard deviations in the training period)" – i.e. metrics in Table 2 are on normalized scale.
-  Requirement asks for inverse-scaled metrics – benchmark now reports BOTH (see trainer.py).
+
 - Creates sliding-window Dataset with fixed lookback L=720 (TiDE always 720, §5.1) and horizon H.
+##################################################################################################
+MOST IMPORTANT PORTION FOR GATiDE MODEL:
 - Optional time-derived covariates (hour, dayofweek, month, etc.) as in TiDE §5.1:
   "As global dynamic covariates, we use simple time-derived features like minute of the hour, hour of
   the day, day of the week etc which are normalized similar to Alexandrov et al. 2020". When enabled,
   GATiDE's SegmentAttentionFusion receives ≥2 segments and attention is active; without covariates it
   falls back to single-segment (still valid, but attention arm is identical to concat).
-
+########################################################################################################
 Supports both generic CSVs (date,col1,col2,...) and the LTSF benchmark layout.
 """
 from __future__ import annotations
@@ -41,8 +40,7 @@ from benchmark.utils.scaler import StandardScaler
 # CSV discovery helpers
 # ---------------------------------------------------------------------------
 
-CSV_CANDIDATES = ["ETTh1.csv", "ETTh2.csv", "ETTm1.csv", "ETTm2.csv",
-                  "weather.csv", "electricity.csv", "traffic.csv", "Weather.csv"]
+CSV_CANDIDATES = ["ETTh1.csv", "ETTh2.csv", "ETTm1.csv", "ETTm2.csv", "weather.csv", "electricity.csv", "traffic.csv", "Weather.csv"]
 
 
 def discover_datasets(csv_dir: str) -> List[str]:
@@ -53,7 +51,6 @@ def discover_datasets(csv_dir: str) -> List[str]:
     names = [os.path.splitext(os.path.basename(p))[0] for p in csvs]
     # normalize lower-case traffic vs Traffic etc, but keep original stem
     return sorted(names)
-
 
 def _resolve_csv(csv_dir: str, dataset: str) -> str:
     """Find CSV file for dataset name (case-insensitive stem)."""
@@ -75,15 +72,11 @@ def _resolve_csv(csv_dir: str, dataset: str) -> str:
 class TimeSeriesWindowDataset(Dataset):
     """Sliding window dataset.
 
-    Given a 2-D array data of shape (T, C) already scaled,
-    yields (x, y) where x: (L, C), y: (H, C).
+    Given a 2-D array data of shape (T, C) already scaled, yields (x, y) where x: (L, C), y: (H, C).
 
-    When an optional covariate array of shape (T, F) is supplied (must share the
-    same T and chronological index as `data`), __getitem__ returns a third tensor:
-    (x, y, cov) where cov: (L+H, F) covers exactly the window's input+target span
-    (same sliding index, so alignment is exact). Mirrors how the original Darts
-    GA-TiDE builds its future-covariate segment over input_chunk_length +
-    output_chunk_length steps.
+    When an optional covariate array of shape (T, F) is supplied (must share the same T and chronological index as `data`), __getitem__ returns a third tensor:
+    (x, y, cov) where cov: (L+H, F) covers exactly the window's input+target span (same sliding index, so alignment is exact). Mirrors how the original Darts
+    GA-TiDE builds its future-covariate segment over input_chunk_length + output_chunk_length steps.
     """
 
     def __init__(self, data: np.ndarray, lookback: int, horizon: int,
@@ -148,9 +141,9 @@ def _split_indices(n: int, dataset: str, convention: str) -> tuple[int, int, int
 
 
 def _make_time_covariates(dates: pd.Series, freq_is_subhourly: bool = False) -> Optional[np.ndarray]:
-    """Generate TiDE-style global dynamic time covariates (hour, dayofweek, month, dayofyear, + minute if subhourly).
-    Returns (T, F) standardized features or None if dates missing. Mirrors GATiDE scripts/benchmark.py build_encoders.
-    """
+    """Generate TiDE-style global dynamic time covariates (hour, dayofweek, month, dayofyear, + minute if subhourly). Returns (T, F) standardized features or None if dates missing. 
+    Mirrors GATiDE scripts/benchmark.py build_encoders. """
+   
     if dates is None or dates.isna().all():
         return None
     df = pd.DataFrame({"date": pd.to_datetime(dates)})
@@ -203,12 +196,11 @@ def load_and_split(
     use_covariates: bool = False,
 ) -> SplitData:
     """Load CSV, split sequentially, fit scaler on train only.
-
     Args:
-        split_convention: "tide" (7:1:2 for all, TiDE paper §5.1) or "prior-work" (6:2:2 for ETT)
-        use_covariates: if True, also generate time-derived covariates for GATiDE segment fusion
-    Returns SplitData with both scaled and raw arrays.
+        split_convention: "tide" (7:1:2 for all, TiDE paper §5.1) or "prior-work" (6:2:2 for ETT) 
+        use_covariates: if True, also generate time-derived covariates for GATiDE segment fusion Returns SplitData with both scaled and raw arrays.
     """
+   
     csv_path = _resolve_csv(csv_dir, dataset)
     df = pd.read_csv(csv_path)
 
@@ -317,30 +309,21 @@ def make_loaders(
     split: SplitData,
     lookback: int,
     horizon: int,
-    batch_size: int = 32,
+    batch_size: int = 512,
     num_workers: int = 0,
     shuffle_train: bool = True,
     use_covariates: bool = False,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create DataLoaders from SplitData.
-
-    When use_covariates is True and the split carries time covariates, loaders
-    yield (x, y, cov) triples; otherwise (x, y) as before.
+    When use_covariates is True and the split carries time covariates, loaders yield (x, y, cov) triples; otherwise (x, y) as before.
     """
     def _cov(cov: Optional[np.ndarray]) -> Optional[np.ndarray]:
         return cov if (use_covariates and cov is not None) else None
 
-    train_ds = TimeSeriesWindowDataset(split.train_data_scaled, lookback, horizon,
-                                       cov_data=_cov(split.cov_train))
-    val_ds = TimeSeriesWindowDataset(split.val_data_scaled, lookback, horizon,
-                                     cov_data=_cov(split.cov_val))
-    test_ds = TimeSeriesWindowDataset(split.test_data_scaled, lookback, horizon,
-                                      cov_data=_cov(split.cov_test))
-
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=shuffle_train,
-                              num_workers=num_workers, drop_last=False)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
-                            num_workers=num_workers, drop_last=False)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False,
-                             num_workers=num_workers, drop_last=False)
+    train_ds = TimeSeriesWindowDataset(split.train_data_scaled, lookback, horizon, cov_data=_cov(split.cov_train))
+    val_ds = TimeSeriesWindowDataset(split.val_data_scaled, lookback, horizon, cov_data=_cov(split.cov_val))
+    test_ds = TimeSeriesWindowDataset(split.test_data_scaled, lookback, horizon, cov_data=_cov(split.cov_test))
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=shuffle_train, num_workers=num_workers, drop_last=False)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=False)
     return train_loader, val_loader, test_loader
