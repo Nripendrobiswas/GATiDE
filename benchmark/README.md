@@ -45,9 +45,9 @@ export PYTHONPATH="E:/Machine Learning Research/GATiDE Final Verse/GATiDE/src:$P
 
 ---
 
-## Data
+## Dataset
 
-Place the LTSF CSVs in `data/` (already present in the sibling `GATiDE/data/`):
+Dataset are available at `GATiDE/data/`:
 
 ```
 GATiDE/data/
