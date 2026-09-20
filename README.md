@@ -91,7 +91,7 @@ comparison is between two models:
 
 A difference in accuracy is consequently not attributable to any single one of them. Isolating them would require constructor switches for the block type and
 the fusion mode, which this implementation does not expose. Report the comparison as between two models, not as an ablation.
----
+
 ## 1.5 Reproducing the paper
 **Diagnostics**
 ```bash
