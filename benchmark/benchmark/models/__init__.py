@@ -5,9 +5,7 @@ from typing import Dict, Type
 import torch.nn as nn
 
 from benchmark.models.tide import TiDE
-from benchmark.models.dlinear import DLinear
-from benchmark.models.patchtst import PatchTST
-from benchmark.models.naive import NaiveBaseline
+# from benchmark.models.patchtst import PatchTST
 from benchmark.models.gatide_adapter import GATiDEPure
 
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
@@ -15,11 +13,11 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "ga-tide": GATiDEPure,
     "gatide-pure": GATiDEPure,
     "tide": TiDE,
-    "dlinear": DLinear,
-    "patchtst": PatchTST,
-    "naive": NaiveBaseline,
+    # "dlinear": DLinear,
+    # "patchtst": PatchTST,
+    # "naive": NaiveBaseline,
     # alias for persistence baseline
-    "persistence": NaiveBaseline,
+    # "persistence": NaiveBaseline,
 }
 
 def get_model(name: str):
