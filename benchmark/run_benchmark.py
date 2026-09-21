@@ -135,13 +135,13 @@ def parse_args():
         models = [args.model]
     elif args.models is not None:
         if len(args.models) == 1 and args.models[0] == "all":
-            models = ["gatide", "tide"]
+            models = ["gatide", "tide", "dlinear", "patchtst", "naive"]
         else:
             models = args.models
     else:
         models_cfg = get("benchmark.models", None, default=None)
         # Actually model list not in yaml benchmark, use defaults
-        models = ["gatide", "tide"]
+        models = ["gatide", "tide", "dlinear", "patchtst", "naive"]
 
     # Training params with defaults from yaml
     lookback = get("data.lookback", args.lookback, default=720)
