@@ -1,0 +1,96 @@
+# Default benchmark configuration – TiDE-paper faithful + requirement prompt
+# Overrides via CLI args in run_benchmark.py
+# Paper: Das et al. 2023 "Long-term Forecasting with TiDE: Time-series Dense Encoder", TMLR
+#   §5.1: L=720 for TiDE, H∈{96,192,336,720}, 7:1:2 split, normalized metrics (Table 2),
+#         time covariates (hour/dayofweek/month/dayofyear), MSE loss, Adam, 5-run mean±std
+#   Fig.2: throughput vs L (training time per epoch, inference time per batch)
+# Requirement prompt: L=720, H∈{96,192,336,720}, 70/10/20 split, inverse-scaled MSE/MAE,
+#   AdamW+Cosine/StepLR+EarlyStopping, training time per epoch + GPU peak memory
+
+data:
+  csv_dir: "E:/Machine Learning Research/GATiDE Final Verse/GATiDE/data"
+  datasets: ["ETTh1", "ETTh2", "ETTm1", "ETTm2", "electricity", "weather", "traffic"]
+  datasets_auto: true
+  lookback: 720                          # L – TiDE §5.1 always 720 (baselines tuned 24..720)
+  horizons: [96, 192, 336, 720]          # H – TiDE Table 2
+  split: [0.70, 0.10, 0.20]               # fallback ratio; see split_convention below
+  split_convention: "tide"               # tide (7:1:2 for all, TiDE §5.1) | prior-work (6:2:2 for ETT)
+  use_covariates: false                  # true -> generate time covariates (hour etc., TiDE §5.1) for GATiDE fusion
+  scaler: "standard"                     # standard (zero-mean, unit-variance) fit on train only (TiDE + requirement)
+
+training:
+  batch_size: 32
+  n_epochs: 100
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  optimizer: "adamw"                     # adamw (requirement) | adam (TiDE paper default)
+  scheduler: "cosine"                    # cosine | step | none (TiDE tunes per dataset, we default cosine)
+  scheduler_params:
+    T_max: 100
+    step_size: 30
+    gamma: 0.5
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 1.0e-4
+  grad_clip: 1.0
+  num_workers: 0
+  seed: 42
+  seeds: null                            # null -> single seed; e.g., [0,1,2,3,4] for TiDE 5-run mean±std
+  device: "auto"
+  amp: false
+
+model:
+  hidden_size: 128
+  num_encoder_layers: 2
+  num_decoder_layers: 2
+  decoder_output_dim: 16
+  temporal_decoder_hidden: 32
+  temporal_width_past: 4
+  temporal_width_future: 4
+  dropout: 0.1
+  use_layer_norm: false
+  num_heads: 4
+
+models:
+  gatide:
+    hidden_size: 256
+    num_encoder_layers: 1
+    num_decoder_layers: 1
+    decoder_output_dim: 16
+    temporal_decoder_hidden: 32
+    dropout: 0.1
+    num_attn_heads: 4
+    use_layer_norm: false
+  tide:
+    hidden_size: 256
+    num_encoder_layers: 1
+    num_decoder_layers: 1
+    decoder_output_dim: 16
+    temporal_decoder_hidden: 32
+    dropout: 0.1
+    use_layer_norm: false
+  dlinear:
+    kernel_size: 25
+    individual: false
+  patchtst:
+    patch_len: 16
+    stride: 8
+    n_layers: 2
+    d_model: 128
+    n_heads: 4
+    d_ff: 256
+    dropout: 0.1
+    act: "gelu"
+  naive:
+    strategy: "last"
+
+benchmark:
+  save_dir: "./benchmark_outputs"
+  save_predictions: true
+  results_csv: "benchmark_results.csv"
+  verbose: true
+  # Metrics: both scales saved per row
+  #   mse/mae – original (inverse-scaled, requirement)
+  #   mse_norm/mae_norm – normalized (TiDE Table 2 comparable, "standard normalized datasets")
+  # Throughput: train_time_per_epoch_s, inference_ms_per_batch, peak_memory_mb (TiDE Fig.2)
